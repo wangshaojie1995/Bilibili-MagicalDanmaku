@@ -1,0 +1,155 @@
+/* 弹幕容器样式 */
+#danmu-list {
+    position: fixed;
+    left: 20px;
+    bottom: 20px;
+    width: calc(100% - 40px);
+    max-width: 800px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    z-index: 9999;
+    pointer-events: none;
+}
+
+/* 弹幕项样式 */
+.danmu-item {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 8px;
+    opacity: 0;
+    transform: translateY(20px);
+    animation: danmuEnter 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.danmu-item.removing {
+    animation: danmuExit 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* 头像样式 */
+.danmu-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+
+/* 右侧内容容器 */
+.danmu-content {
+    flex: 1;
+    min-width: 0;
+}
+
+/* 昵称行样式 */
+.danmu-user-info {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+    white-space: nowrap;
+}
+
+/* 粉丝牌样式 */
+.danmu-medal {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-right: 6px;
+    font-size: 12px;
+    border: 1px solid;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+/* 昵称样式 */
+.danmu-nickname {
+    color: #fff;
+    font-size: 14px;
+    text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+    margin-right: 6px;
+}
+
+/* 舰长图标样式 */
+.danmu-guard-icon {
+    width: 20px;
+    height: 20px;
+    margin-left: 4px;
+}
+
+/* 弹幕气泡样式 */
+.danmu-bubble {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 16px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 14px;
+    word-break: break-word;
+    max-width: 100%;
+}
+
+/* 动画定义 */
+@keyframes danmuEnter {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes danmuExit {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+}
+
+/* 响应式设计 */
+@media screen and (max-width: 768px) {
+    #danmu-list {
+        left: 10px;
+        bottom: 10px;
+        width: calc(100% - 20px);
+    }
+    
+    .danmu-avatar {
+        width: 32px;
+        height: 32px;
+    }
+    
+    .danmu-bubble {
+        font-size: 12px;
+        padding: 4px 10px;
+    }
+    
+    .danmu-nickname {
+        font-size: 12px;
+    }
+    
+    .danmu-medal {
+        font-size: 10px;
+        padding: 1px 4px;
+    }
+    
+    .danmu-item.continuous {
+        padding-left: 40px; /* 移动端头像宽度(32px) + 右边距(8px) */
+    }
+}
+
+/* 连续弹幕样式 */
+.danmu-item.continuous {
+    padding-left: 40px; /* 头像宽度(40px) + 右边距(8px) */
+}
+
+.danmu-item.continuous .danmu-content {
+    margin-left: 0;
+}

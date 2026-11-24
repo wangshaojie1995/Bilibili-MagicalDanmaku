@@ -304,6 +304,37 @@ void MainWindow::processRemoteCmd(QString msg, bool response)
         if (response)
             cr->sendNotifyMsg(">已关闭弹幕回复");
     }
+    else if (msg == "开启粉丝档案")
+    {
+        if (!us->fansArchives)
+        {
+            on_actionBuy_VIP_triggered();
+            ui->fansArchivesCheck->setChecked(true);
+            on_fansArchivesCheck_clicked();
+            if (response)
+                cr->sendNotifyMsg(">已开启粉丝档案");
+        }
+        else
+        {
+            if (response)
+                cr->sendNotifyMsg(">已开启粉丝档案（无变动）");
+        }
+    }
+    else if (msg == "关闭粉丝档案")
+    {
+        if (us->fansArchives)
+        {
+            ui->fansArchivesCheck->setChecked(false);
+            on_fansArchivesCheck_clicked();
+            if (response)
+                cr->sendNotifyMsg(">已关闭粉丝档案");
+        }
+        else
+        {
+            if (response)
+                cr->sendNotifyMsg(">已关闭粉丝档案（无变动）");
+        }
+    }
     else
         return ;
     qInfo() << "执行远程命令：" << msg;
@@ -317,7 +348,13 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
     {
         // {key} = val
         // {key} += val
-        QRegularExpression re("^\\s*\\{(.+?)\\}\\s*(.?)=\\s*(.*)\\s*$");
+        // {key} + val
+        auto isPureNumber = [=](QString s) -> bool {
+            bool ok;
+            s.toInt(&ok);
+            return ok;
+        };
+        QRegularExpression re("^\\s*\\{(.+?)\\}\\s*([\\+\\-\\*/%=]+)\\s*(.*)\\s*$");
         if (msg.indexOf(re, 0, &match) > -1)
         {
             QString key = match.captured(1);
@@ -325,22 +362,88 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
             QString val = match.captured(3);
             if (!key.contains("/"))
                 key = "heaps/" + key;
-            if (ope.isEmpty())
+            QString keyS = cr->heaps->value(key).toString();
+            if (ope.isEmpty() || ope == "=")
             {
                 cr->heaps->setValue(key, val);
                 qInfo() << "set value" << key << "=" << val;
+            }
+            else if (!isPureNumber(keyS) || !isPureNumber(val)) // 字符串操作
+            {
+                if (ope == "+" || ope == "+=")
+                    keyS += val;
+                else if (ope == "-" || ope == "-=")
+                {
+                    if (isPureNumber(val))
+                    {
+                        keyS += val;
+                    }
+                    else // 字符串查找并减去
+                    {
+                        int pos = keyS.indexOf(val);
+                        if (pos > -1)
+                            keyS = keyS.left(pos) + keyS.mid(pos + val.length());
+                        else
+                            showError("字符串查找失败", keyS + "中没有" + val);
+                    }
+                }
+                else if (ope == "*" || ope == "*=")
+                {
+                    if (isPureNumber(val)) // keyS重复val次
+                    {
+                        int n = val.toInt();
+                        if (n > 0)
+                        {
+                            keyS = keyS.repeated(n);
+                        }
+                        else
+                        {
+                            showError("重复次数小于1", msg);
+                        }
+                    }
+                    else
+                    {
+                        showError("不支持的字符串*运算", msg);
+                    }
+                }
+                else if (ope == "/" || ope == "/=")
+                {
+                    if (isPureNumber(val)) // 长度除以N
+                    {
+                        int n = val.toInt();
+                        if (n > 0)
+                        {
+                            keyS = keyS.left(keyS.length() / n);
+                        }
+                        else
+                        {
+                            showError("除数小于1", msg);
+                        }
+                    }
+                    else // 除去里面所有val
+                    {
+                        QStringList list = keyS.split(val);
+                        keyS = list.join("");
+                    }
+                }
+                else
+                {
+                    qWarning() << "不支持的操作符：" << ope;
+                }
+                cr->heaps->setValue(key, keyS);
+                qInfo() << "set value" << key << "=" << keyS;
             }
             else // 数值运算
             {
                 qint64 v = cr->heaps->value(key).toLongLong();
                 qint64 x = val.toLongLong();
-                if (ope == "+")
+                if (ope == "+" || ope == "+=")
                     v += x;
-                else if (ope == "-")
+                else if (ope == "-" || ope == "-=")
                     v -= x;
-                else if (ope == "*")
+                else if (ope == "*" || ope == "*=")
                     v *= x;
-                else if (ope == "/")
+                else if (ope == "/" || ope == "/=")
                 {
                     if (x == 0)
                     {
@@ -349,7 +452,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
                     }
                     v /= x;
                 }
-                else if (ope == "%")
+                else if (ope == "%" || ope == "%=")
                 {
                     if (x == 0)
                     {
@@ -411,7 +514,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps;
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             int hour = caps.at(2).toInt();
             QString msg = caps.at(3);
             liveService->addBlockUser(uid, hour, msg);
@@ -422,7 +525,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps;
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             int hour = caps.at(2).toInt();
             liveService->addBlockUser(uid, hour, "");
             return true;
@@ -432,7 +535,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps;
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             int hour = ui->autoBlockTimeSpin->value();
             liveService->addBlockUser(uid, hour, "");
             return true;
@@ -447,7 +550,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps;
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             liveService->delBlockUser(uid);
             return true;
         }
@@ -461,7 +564,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps;
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             QString uname = caps.at(2);
             QString msg = caps.at(3);
             eternalBlockUser(uid, uname, msg);
@@ -472,7 +575,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps;
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             QString uname = caps.at(2);
             eternalBlockUser(uid, uname, "");
             return true;
@@ -487,7 +590,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps;
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             liveService->appointAdmin(uid);
             return true;
         }
@@ -501,7 +604,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps;
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             liveService->dismissAdmin(uid);
             return true;
         }
@@ -557,7 +660,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps << cr->gameUsers[0].size();
             int chan = caps.at(1).toInt();
-            qint64 uid = caps.at(2).toLongLong();
+            UIDT uid = caps.at(2);
             if (chan < 0 || chan >= CHANNEL_COUNT)
                 chan = 0;
             cr->gameUsers[chan].append(uid);
@@ -569,7 +672,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps << cr->gameUsers[0].size();
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             cr->gameUsers[0].append(uid);
             return true;
         }
@@ -584,7 +687,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps << cr->gameUsers[0].size();
             int chan = caps.at(1).toInt();
-            qint64 uid = caps.at(2).toLongLong();
+            UIDT uid = caps.at(2);
             if (chan < 0 || chan >= CHANNEL_COUNT)
                 chan = 0;
             cr->gameUsers[chan].removeOne(uid);
@@ -596,7 +699,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps << cr->gameUsers[0].size();
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             cr->gameUsers[0].removeOne(uid);
             return true;
         }
@@ -611,10 +714,10 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps << cr->gameNumberLists[0].size();
             int chan = caps.at(1).toInt();
-            qint64 uid = caps.at(2).toLongLong();
+            qint64 num = caps.at(2).toLongLong();
             if (chan < 0 || chan >= CHANNEL_COUNT)
                 chan = 0;
-            cr->gameNumberLists[chan].append(uid);
+            cr->gameNumberLists[chan].append(num);
             saveGameNumbers(chan);
             return true;
         }
@@ -624,8 +727,8 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps << cr->gameNumberLists[0].size();
-            qint64 uid = caps.at(1).toLongLong();
-            cr->gameNumberLists[0].append(uid);
+            qint64 num = caps.at(1).toLongLong();
+            cr->gameNumberLists[0].append(num);
             saveGameNumbers(0);
             return true;
         }
@@ -640,10 +743,10 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps << cr->gameNumberLists[0].size();
             int chan = caps.at(1).toInt();
-            qint64 uid = caps.at(2).toLongLong();
+            qint64 num = caps.at(2).toLongLong();
             if (chan < 0 || chan >= CHANNEL_COUNT)
                 chan = 0;
-            cr->gameNumberLists[chan].removeOne(uid);
+            cr->gameNumberLists[chan].removeOne(num);
             saveGameNumbers(chan);
             return true;
         }
@@ -653,8 +756,8 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps << cr->gameNumberLists[0].size();
-            qint64 uid = caps.at(1).toLongLong();
-            cr->gameNumberLists[0].removeOne(uid);
+            qint64 num = caps.at(1).toLongLong();
+            cr->gameNumberLists[0].removeOne(num);
             saveGameNumbers(0);
             return true;
         }
@@ -771,7 +874,45 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
             qInfo() << "执行命令：" << caps;
             if (roomId == ac->roomId)
                 cr->addNoReplyDanmakuText(msg);
-            liveService->sendRoomMsg(roomId, msg);
+
+            const QString subAccountArg = danmaku.getSubAccount();
+            QString cookie = us->getSubAccountCookie(subAccountArg);
+            liveService->sendRoomMsg(roomId, msg, cookie);
+            return true;
+        }
+    }
+
+    // 发送指定直播间表情
+    if (msg.contains("sendRoomEmoji"))
+    {
+        // 带房间号
+        re = RE("sendRoomEmoji\\s*\\(\\s*(\\d+)\\s*,\\s*(.+)\\s*\\)");
+        if (msg.indexOf(re, 0, &match) > -1)
+        {
+            QStringList caps = match.capturedTexts();
+            QString roomId = caps.at(1);
+            QString msg = caps.at(2);
+            qInfo() << "执行命令：" << caps;
+            if (roomId == ac->roomId)
+                cr->addNoReplyDanmakuText(msg);
+            const QString subAccountArg = danmaku.getSubAccount();
+            QString cookie = us->getSubAccountCookie(subAccountArg);
+            liveService->sendRoomEmoji(roomId, msg, cookie);
+            return true;
+        }
+    }
+    if (msg.contains("sendEmoji"))
+    {
+        // 不带房间号
+        re = RE("sendEmoji\\s*\\(\\s*(.+)\\s*\\)");
+        if (msg.indexOf(re, 0, &match) > -1)
+        {
+            QStringList caps = match.capturedTexts();
+            QString msg = caps.at(1);
+            qInfo() << "执行命令：" << caps;
+            const QString subAccountArg = danmaku.getSubAccount();
+            QString cookie = us->getSubAccountCookie(subAccountArg);
+            liveService->sendRoomEmoji(ac->roomId, msg, cookie);
             return true;
         }
     }
@@ -834,7 +975,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
             QString msg = caps.at(2);
             msg = cr->toMultiLine(msg);
             qInfo() << "执行命令：" << caps;
-            localNotify(msg, uid.toLongLong());
+            localNotify(msg, uid);
             return true;
         }
     }
@@ -1093,7 +1234,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
             QNetworkRequest* request = new QNetworkRequest(url);
             setUrlCookie(url, request);
             request->setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded; charset=UTF-8");
-            request->setHeader(QNetworkRequest::UserAgentHeader, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.111 Safari/537.36");
+            request->setHeader(QNetworkRequest::UserAgentHeader, liveService->getUserAgent());
             for (auto header: headers)
             {
                 int find = header.indexOf("=");
@@ -1141,7 +1282,8 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
             qInfo() << "执行命令：" << caps;
             QString url = caps.at(1);
             QString data = caps.at(2);
-            data = cr->toMultiLine(data);
+            // json里的换行 不能直接把%n%转义为\n，而是应该转义为\\n
+            data = cr->toMultiLineForJson(data);
             QString callback = caps.size() > 3 ? caps.at(3) : "";
             postJson(url, data.toStdString().data(), [=](QNetworkReply* reply){
                 QByteArray ba(reply->readAll());
@@ -1228,6 +1370,21 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
             qInfo() << "执行命令：" << caps;
             if (webServer->extensionSockets.size())
                 sendTextToSockets(cmd, data.toUtf8(), webServer->extensionSockets.last());
+            return true;
+        }
+    }
+
+    // 发送websocket消息
+    if (msg.contains("sendToLiveSocket"))
+    {
+        re = RE("sendToLiveSocket\\s*\\(\\s*(.*?)\\s*\\)");
+        if (msg.indexOf(re, 0, &match) > -1)
+        {
+            QStringList caps = match.capturedTexts();
+            QString data = caps.at(1);
+            data = cr->toMultiLine(data);
+            qInfo() << "执行命令：" << caps;
+            liveService->sendSocketMessage(data.toUtf8());
             return true;
         }
     }
@@ -1699,7 +1856,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
                                 {
                                     QString _var = match2.captured(0);
                                     QString text = match2.captured(1);
-                                    text = snum(ConditionUtil::calcIntExpression(text));
+                                    text = snum(CalculatorUtil::calcIntExpression(text));
                                     newValue.replace(_var, text); // 默认使用变量类型吧
                                 }
                             }
@@ -2123,7 +2280,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             if (ui->chatGPTRadio->isChecked())
             {
-                msg.replace(QRegularExpression("(?:ai|AI)Chat\\("), "ChatGPT(" + snum(danmaku.getUid()) + ",");
+                msg.replace(QRegularExpression("(?:ai|AI)Chat\\("), "ChatGPT(" + danmaku.getUid() + ",");
             }
             else
             {
@@ -2179,7 +2336,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         {
             QStringList caps = match.capturedTexts();
             qInfo() << "执行命令：" << caps;
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             QString text = caps.at(2).trimmed();
             if (text.isEmpty())
                 return true;
@@ -2188,27 +2345,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
 
             chatService->chatgpt->chat(uid, text, [=](QString result){
                 // 处理代码
-                if (us->chatgpt_analysis)
-                {
-                    // 如果开启了功能型GPT，那么回复会是JSON格式
-                    QString reply = result;
-                    if (!reply.startsWith("{"))
-                    {
-                        int index = reply.indexOf("{");
-                        if (index > -1)
-                        {
-                            reply = reply.right(reply.length() - index);
-                        }
-                    }
-                    MyJson json(reply.toUtf8());
-                    if (json.isEmpty())
-                    {
-                        qWarning() << "无法解析的GPT回复格式：" << reply.toUtf8();
-                        return;
-                    }
-                    result = json.value("msg").toString();
-                }
-                else
+                // if (!us->chatgpt_analysis)
                 {
                     // 过滤回复后的内容
                     LiveDanmaku dmk = danmaku;
@@ -2241,7 +2378,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         if (msg.indexOf(re, 0, &match) > -1)
         {
             QStringList caps = match.capturedTexts();
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             qInfo() << "执行命令：" << caps;
 
             if (!us->notWelcomeUsers.contains(uid))
@@ -2249,8 +2386,8 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
                 us->notWelcomeUsers.append(uid);
 
                 QStringList ress;
-                foreach (qint64 uid, us->notWelcomeUsers)
-                    ress << QString::number(uid);
+                foreach (UIDT uid, us->notWelcomeUsers)
+                    ress << uid;
                 us->setValue("danmaku/notWelcomeUsers", ress.join(";"));
             }
 
@@ -2265,7 +2402,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         if (msg.indexOf(re, 0, &match) > -1)
         {
             QStringList caps = match.capturedTexts();
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             qInfo() << "执行命令：" << caps;
 
             if (us->notWelcomeUsers.contains(uid))
@@ -2273,8 +2410,8 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
                 us->notWelcomeUsers.removeOne(uid);
 
                 QStringList ress;
-                foreach (qint64 uid, us->notWelcomeUsers)
-                    ress << QString::number(uid);
+                foreach (UIDT uid, us->notWelcomeUsers)
+                    ress << uid;
                 us->setValue("danmaku/notWelcomeUsers", ress.join(";"));
             }
 
@@ -2289,7 +2426,7 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         if (msg.indexOf(re, 0, &match) > -1)
         {
             QStringList caps = match.capturedTexts();
-            qint64 uid = caps.at(1).toLongLong();
+            UIDT uid = caps.at(1);
             QString name = caps.at(2);
             qInfo() << "执行命令：" << caps;
             if (uid == 0)
@@ -2373,6 +2510,11 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
             QString text = caps.at(1);
             QString uname = caps.at(2);
             qInfo() << "执行命令：" << caps;
+            if (!ui->DiangeAutoCopyCheck->isChecked())
+            {
+                qInfo() << "点歌总开关已关闭";
+                return true;
+            }
             if (!musicWindow)
                 on_actionShow_Order_Player_Window_triggered();
             musicWindow->slotSearchAndAutoAppend(text, uname);
@@ -2927,6 +3069,35 @@ bool MainWindow::execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse &res, i
         }
     }
 
+    if (msg.contains("startLive"))
+    {
+        re = RE("startLive\\s*\\(\\s*\\)");
+        if (msg.indexOf(re, 0, &match) > -1)
+        {
+            liveService->myLiveStartLive();
+            return true;
+        }
+    }   
+    
+    if (msg.contains("stopLive"))
+    {
+        re = RE("stopLive\\s*\\(\\s*\\)");
+        if (msg.indexOf(re, 0, &match) > -1)
+        {
+            liveService->myLiveStopLive();
+            return true;
+        }
+    }
+    
+    if (msg.contains("setLiveArea"))
+    {
+        re = RE("setLiveArea\\s*\\(\\s*(\\d+)\\s*\\)");
+        if (msg.indexOf(re, 0, &match) > -1)
+        {
+            liveService->myLiveUpdateArea(match.captured(1));
+            return true;
+        }
+    }
 
     return false;
 }

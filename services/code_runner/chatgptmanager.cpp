@@ -6,12 +6,12 @@ ChatGPTManager::ChatGPTManager(QObject *parent) : QObject(parent)
 {
 }
 
-void ChatGPTManager::setLiveService(LiveRoomService *service)
+void ChatGPTManager::setLiveService(LiveServiceBase *service)
 {
     this->liveService = service;
 }
 
-void ChatGPTManager::chat(qint64 uid, QString text, NetStringFunc func)
+void ChatGPTManager::chat(UIDT uid, QString text, NetStringFunc func)
 {
     /// 初始化ChatGPT
     ChatGPTUtil* chatgpt = new ChatGPTUtil(this);
@@ -19,28 +19,7 @@ void ChatGPTManager::chat(qint64 uid, QString text, NetStringFunc func)
     QString label = "ChatGPT弹幕版";
 
     connect(chatgpt, &ChatGPTUtil::signalResponseError, this, [=](const QByteArray& ba) {
-        QJsonParseError error;
-        QJsonDocument document = QJsonDocument::fromJson(ba, &error);
-        if (error.error == QJsonParseError::NoError)
-        {
-            QJsonObject json = document.object();
-            if (json.contains("error") && json.value("error").isObject())
-                json = json.value("error").toObject();
-            if (json.contains("message"))
-            {
-                int code = json.value("code").toInt();
-                QString type = json.value("type").toString();
-                qCritical() << (json.value("message").toString() + "\n\n错误码：" + snum(code) + "  " + type);
-            }
-            else
-            {
-                qCritical() << QString(ba);
-            }
-        }
-        else
-        {
-            qCritical() << QString(ba);
-        }
+        qCritical() << QString(ba);
     });
 
     connect(chatgpt, &ChatGPTUtil::signalRequestStarted, this, [=]{
@@ -67,7 +46,8 @@ void ChatGPTManager::chat(qint64 uid, QString text, NetStringFunc func)
     userChats.append(ChatBean("user", text));
 
     QList<ChatBean> chats;
-    if (us->chatgpt_analysis)
+    // 提示词
+    /*if (us->chatgpt_analysis)
     {
         if (!us->chatgpt_analysis_prompt.isEmpty())
         {
@@ -76,7 +56,7 @@ void ChatGPTManager::chat(qint64 uid, QString text, NetStringFunc func)
             chats.append(ChatBean("system", rep));
         }
     }
-    else
+    else*/
     {
         if (!us->chatgpt_prompt.isEmpty())
         {
@@ -86,6 +66,10 @@ void ChatGPTManager::chat(qint64 uid, QString text, NetStringFunc func)
         }
     }
 
+    // 用户信息
+    chats.append(ChatBean("system", QString("用户信息：\nUID=%1").arg(uid)));
+
+    // 历史弹幕
     int count = us->chatgpt_max_context_count;
     for (int i = userChats.size() - 1; i >= 0; i--)
     {
@@ -102,8 +86,65 @@ void ChatGPTManager::chat(qint64 uid, QString text, NetStringFunc func)
         chats.insert(0, userChats.at(i));
     }
 
+    // AI分析修改最后一条弹幕的格式
     if (us->chatgpt_analysis && !us->chatgpt_analysis_format.isEmpty())
         chats.last().message = us->chatgpt_analysis_format + "\n" + chats.last().message;
+
+    QJsonObject extraKey;
+    extraKey.insert("uid", uid);
+
+    chatgpt->getResponse(chats, extraKey);
+
+    // 清理该UID超过上限的记录
+    const int maxCount = qMax(us->chatgpt_max_context_count * 2, us->chatgpt_history_max_count); // 至少保留100条
+    auto& uidChats = usersChats[uid];
+    while (uidChats.size() > maxCount)
+        uidChats.removeFirst();
+}
+
+void ChatGPTManager::analyze(QStringList texts, NetStringFunc func)
+{
+    if (_isAnalyzing)
+        return;
+    _isAnalyzing = true;
+
+    /// 初始化ChatGPT
+    ChatGPTUtil* chatgpt = new ChatGPTUtil(this);
+    chatgpt->setStream(false);
+    QString label = "ChatGPT弹幕版";
+
+    connect(chatgpt, &ChatGPTUtil::signalResponseError, this, [=](const QByteArray& ba) {
+        qCritical() << QString(ba);
+    });
+
+    connect(chatgpt, &ChatGPTUtil::signalRequestStarted, this, [=]{
+
+    });
+    connect(chatgpt, &ChatGPTUtil::signalResponseFinished, this, [=]{
+
+    });
+    connect(chatgpt, &ChatGPTUtil::finished, this, [=]{
+        chatgpt->deleteLater();
+        _isAnalyzing = false;
+    });
+    connect(chatgpt, &ChatGPTUtil::signalResponseText, this, [=](const QString& text) {
+        func(text);
+    });
+    connect(chatgpt, &ChatGPTUtil::signalStreamText, this, [=](const QString& text) {
+
+    });
+
+    QList<ChatBean> chats;
+    // 提示词
+    if (!us->chatgpt_analysis_prompt.isEmpty())
+    {
+        QString rep = us->chatgpt_analysis_prompt;
+        rep.replace("%danmu_longest%", snum(ac->danmuLongest));
+        chats.append(ChatBean("system", rep));
+    }
+    else
+        qWarning() << "AI分析提示词为空";
+    chats.append(ChatBean("user", texts.join("\n")));
 
     chatgpt->getResponse(chats);
 }
@@ -116,4 +157,9 @@ void ChatGPTManager::clear()
 void ChatGPTManager::localNotify(const QString &text)
 {
 
+}
+
+bool ChatGPTManager::isAnalyzing() const
+{
+    return _isAnalyzing;
 }

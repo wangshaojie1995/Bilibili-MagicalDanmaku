@@ -58,13 +58,12 @@
 #include "voice_service/voiceservice.h"
 #include "chat_service/chatservice.h"
 #include "emailutil.h"
+#include "fansarchivesservice.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
 
-#define LOCAL_MODE 0
-#define CALC_DEB if (0) qDebug() // 输出计算相关的信息
 #define SERVER_DEB if (0) qDebug() // 输出服务器功能相关信息
 
 #define CONNECT_SERVER_INTERVAL 1800000
@@ -78,7 +77,8 @@ QT_END_NAMESPACE
 #define PAGE_THANK 2
 #define PAGE_MUSIC 3
 #define PAGE_EXTENSION 4
-#define PAGE_PREFENCE 5
+#define PAGE_DATA 5
+#define PAGE_PREFENCE 6
 
 #define UPDATE_TOOL_NAME "UpUpTool.exe"
 
@@ -98,7 +98,7 @@ public:
     struct Diange
     {
         QString nickname;
-        qint64 uid;
+        UIDT uid;
         QString name;
         QDateTime time;
     };
@@ -111,7 +111,6 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
     void changeEvent (QEvent * event) override;
     void paintEvent(QPaintEvent * event) override;
-    void test();
 
 signals:
     void signalRoomChanged(QString roomId);
@@ -132,6 +131,8 @@ public slots:
     void processRemoteCmd(QString msg, bool response = true);
     bool execFunc(QString msg, LiveDanmaku &danmaku, CmdResponse& res, int& resVal);
 
+    void slotSubAccountChanged(const QString& cookie, const SubAccount& subAccount);
+
 private slots:
     void on_DiangeAutoCopyCheck_stateChanged(int);
 
@@ -143,7 +144,7 @@ private slots:
 
     void on_languageAutoTranslateCheck_stateChanged(int);
 
-    void on_tabWidget_tabBarClicked(int index);
+    void onExtensionTabWidgetBarClicked(int index);
 
     void on_SendMsgButton_clicked();
 
@@ -162,6 +163,7 @@ private slots:
     void addListItemOnCurrentPage();
 
     void slotDiange(const LiveDanmaku &danmaku);
+    void slotAIReply(const LiveDanmaku &danmaku, bool manual = false);
 
     void slotComboSend();
 
@@ -193,11 +195,11 @@ private slots:
 
     void showDiangeHistory();
 
-    void eternalBlockUser(qint64 uid, QString uname, QString msg);
-    void cancelEternalBlockUser(qint64 uid);
-    void cancelEternalBlockUser(qint64 uid, qint64 roomId);
-    void cancelEternalBlockUserAndUnblock(qint64 uid);
-    void cancelEternalBlockUserAndUnblock(qint64 uid, qint64 roomId);
+    void eternalBlockUser(UIDT uid, QString uname, QString msg);
+    void cancelEternalBlockUser(UIDT uid);
+    void cancelEternalBlockUser(UIDT uid, qint64 roomId);
+    void cancelEternalBlockUserAndUnblock(UIDT uid);
+    void cancelEternalBlockUserAndUnblock(UIDT uid, qint64 roomId);
     void saveEternalBlockUsers();
     void detectEternalBlockUsers();
 
@@ -405,7 +407,7 @@ private slots:
 
     void on_AIReplyMsgCheck_clicked();
 
-    void slotAIReplyed(QString reply, LiveDanmaku danmaku);
+    void on_AIReplySelfCheck_clicked();
 
     void on_danmuLongestSpin_editingFinished();
 
@@ -485,6 +487,8 @@ private slots:
 
     void on_actionQRCode_Login_triggered();
 
+    void on_actionWebViewLogin_triggered();
+
     void on_allowAdminControlCheck_clicked();
 
     void on_actionSponsor_triggered();
@@ -556,6 +560,8 @@ private slots:
     void on_droplight_clicked();
 
     void on_vipExtensionButton_clicked();
+
+    void on_vipDatabaseButton_clicked();
 
     void on_enableTrayCheck_clicked();
 
@@ -701,6 +707,8 @@ private slots:
 
     void on_GPTAnalysisFormatButton_clicked();
 
+    void on_GPTAnalysisDefaultButton_clicked();
+
     void on_removeLongerRandomDanmakuCheck_clicked();
 
     void on_GPTAnalysisEventButton_clicked();
@@ -715,12 +723,55 @@ private slots:
 
     void on_emailPasswordEdit_editingFinished();
 
+    void on_proxyTypeCombo_activated(const QString &arg1);
+
+    void on_proxyHostEdit_editingFinished();
+
+    void on_proxyPortSpin_editingFinished();
+
+    void on_proxyUsernameEdit_editingFinished();
+
+    void on_proxyPasswordEdit_editingFinished();
+
+    void on_chatGPTEndpointEdit_textEdited(const QString &arg1);
+
+    void on_fansArchivesCheck_clicked();
+
+    void on_fansArchivesTabButton_clicked();
+
+    void on_databaseTabButton_clicked();
+
+    void on_refreshFansArchivesButton_clicked();
+
+    void on_fansArchivesByRoomCheck_clicked();
+
+    void on_clearFansArchivesButton_clicked();
+
+    void on_screenMonitorCombo_activated(int index);
+
+    void on_chatGPTModelNameCombo_editTextChanged(const QString &arg1);
+
+    void on_UAButton_clicked();
+
+    void on_addSubAccountButton_clicked();
+
+    void on_refreshSubAccountButton_clicked();
+
+    void on_subAccountDescButton_clicked();
+
+    void on_subAccountTableWidget_customContextMenuRequested(const QPoint &pos);
+
+    void on_proxyTestIPButton_clicked();
+
+    void on_platformButton_clicked();
+
 private:
     void initView();
     void initStyle();
     void initObject();
     void initPath();
     void initLiveService();
+    void initLivePlatform();
     void readConfig();
     void readConfig2();
     void initDanmakuWindow();
@@ -735,7 +786,7 @@ private:
 
     void oldLiveDanmakuRemoved(const LiveDanmaku &danmaku);
     void localNotify(const QString &text);
-    void localNotify(const QString &text, qint64 uid);
+    void localNotify(const QString &text, UIDT uid);
 
     TaskWidget *addTimerTask(bool enable, int second, QString text, int index = -1);
     TaskWidget *addTimerTask(const MyJson &json);
@@ -765,6 +816,10 @@ private:
 
     void autoSetCookie(const QString &s);
     QVariant getCookies() const;
+    void saveSubAccount();
+    void restoreSubAccount();
+    void updateSubAccount();
+    void refreshUndetectedSubAccount();
     QString getDomainPort() const;
     void startConnectIdentityCode();
     void startConnectRoom();
@@ -816,6 +871,7 @@ private:
 
     void releaseLiveData(bool prepare = false);
     QRect getScreenRect();
+    void loadScreenMonitors();
 
     void getPositiveVote();
 
@@ -841,7 +897,7 @@ private:
     void sendJsonToSockets(QString cmd, QJsonValue data, QWebSocket* socket = nullptr);
     void processServerVariant(QByteArray& doc);
 #if defined(ENABLE_HTTP_SERVER)
-    QByteArray getApiContent(QString url, QHash<QString, QString> params, QString *contentType, QHttpRequest *req, QHttpResponse *resp);
+    QByteArray processApiRequest(QString url, QHash<QString, QString> params, QString *contentType, QHttpRequest *req, QHttpResponse *resp);
 #endif
     void sendTextToSockets(QString cmd, QByteArray data, QWebSocket* socket = nullptr);
     void sendMusicList(const SongList& songs, QWebSocket* socket = nullptr);
@@ -870,6 +926,12 @@ private:
 
     void sendEmail(const QString& to, const QString& subject, const QString& body);
 
+    void setNetworkProxy();
+
+    void initFansArchivesService();
+    void updateFansArchivesListView();
+    void loadFansArchives(QString uid);
+
 private:
     // 应用信息
     Ui::MainWindow *ui;
@@ -880,6 +942,7 @@ private:
     QWidget* roomIdBgWidget;
     InteractiveButtonBase* roomSelectorBtn;
     QList<WaterFloatButton*> thankTabButtons;
+    QList<WaterFloatButton*> dataCenterTabButtons;
     InteractiveButtonBase* customVarsButton;
     InteractiveButtonBase* extensionButton;
     CustomPaintWidget* musicTitleDecorateWidget;
@@ -890,7 +953,7 @@ private:
     SingleEntrance* fakeEntrance = nullptr;
     
     // 直播数据
-    LiveRoomService* liveService = nullptr;
+    LiveServiceBase* liveService = nullptr;
 
     // 启动与定时
     QTimer* syncTimer = nullptr;
@@ -924,7 +987,7 @@ private:
     int permissionLevel = 0;
     bool permissionType[20] = {};
     QTimer* permissionTimer = nullptr;
-    QString permissionText = "捐赠版";
+    QString permissionText = "开发版";
     qint64 permissionDeadline = 0;
 
     // 录播
@@ -958,6 +1021,7 @@ private:
     QFont screenDanmakuFont;
     QColor screenDanmakuColor;
     QList<QLabel*> screenLabels;
+    int screenDanmakuIndex = -1;
 
     // 服务端
     WebServer* webServer;
@@ -973,6 +1037,12 @@ private:
 
     // 邮件
     EmailUtil* emailService = nullptr;
+
+    // 粉丝档案
+    FansArchivesService* fansArchivesService = nullptr;
+
+    // 子账号
+    bool _flag_detectingAllSubAccount = false;
 };
 
 class RequestBodyHelper : public QObject

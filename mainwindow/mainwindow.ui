@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1017</width>
-    <height>1854</height>
+    <width>1054</width>
+    <height>2032</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -163,6 +163,23 @@
         </widget>
        </item>
        <item>
+        <widget class="WaterZoomButton" name="dataPageButton">
+         <property name="cursor">
+          <cursorShape>PointingHandCursor</cursorShape>
+         </property>
+         <property name="toolTip">
+          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;数据中心&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+         </property>
+         <property name="text">
+          <string/>
+         </property>
+         <property name="icon">
+          <iconset resource="../resources/resource.qrc">
+           <normaloff>:/icons/big_data</normaloff>:/icons/big_data</iconset>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="WaterZoomButton" name="preferencePageButton">
          <property name="cursor">
           <cursorShape>PointingHandCursor</cursorShape>
@@ -209,13 +226,30 @@
          </property>
         </widget>
        </item>
+       <item>
+        <widget class="WaterZoomButton" name="platformButton">
+         <property name="cursor">
+          <cursorShape>PointingHandCursor</cursorShape>
+         </property>
+         <property name="toolTip">
+          <string>直播论坛：提问/反馈/建议</string>
+         </property>
+         <property name="text">
+          <string/>
+         </property>
+         <property name="icon">
+          <iconset resource="../resources/resource.qrc">
+           <normaloff>:/icons/platform/bilibili</normaloff>:/icons/platform/bilibili</iconset>
+         </property>
+        </widget>
+       </item>
       </layout>
      </widget>
     </item>
     <item>
      <widget class="QStackedWidget" name="stackedWidget">
       <property name="currentIndex">
-       <number>1</number>
+       <number>4</number>
       </property>
       <widget class="QWidget" name="roomPage">
        <layout class="QHBoxLayout" name="horizontalLayout_65">
@@ -1296,6 +1330,9 @@ background-repeat:none;</string>
         </item>
         <item>
          <layout class="QVBoxLayout" name="verticalLayout_21" stretch="0,0,0,1">
+          <property name="spacing">
+           <number>6</number>
+          </property>
           <property name="leftMargin">
            <number>6</number>
           </property>
@@ -1304,20 +1341,26 @@ background-repeat:none;</string>
           </property>
           <item>
            <layout class="QHBoxLayout" name="horizontalLayout_51">
+            <property name="spacing">
+             <number>0</number>
+            </property>
             <property name="leftMargin">
              <number>6</number>
             </property>
             <property name="topMargin">
-             <number>6</number>
+             <number>2</number>
             </property>
             <property name="rightMargin">
              <number>6</number>
             </property>
             <property name="bottomMargin">
-             <number>6</number>
+             <number>2</number>
             </property>
             <item>
              <layout class="QHBoxLayout" name="horizontalLayout_53">
+              <property name="spacing">
+               <number>0</number>
+              </property>
               <item>
                <widget class="QWidget" name="roomIdSpacingWidget_3" native="true">
                 <property name="minimumSize">
@@ -1845,8 +1888,8 @@ margin: 6px;</string>
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>925</width>
-             <height>1697</height>
+             <width>972</width>
+             <height>1860</height>
             </rect>
            </property>
            <property name="styleSheet">
@@ -2181,7 +2224,7 @@ margin: 40px;</string>
               <x>370</x>
               <y>10</y>
               <width>171</width>
-              <height>151</height>
+              <height>171</height>
              </rect>
             </property>
             <property name="styleSheet">
@@ -2269,6 +2312,26 @@ margin: 40px;</string>
               </widget>
              </item>
              <item>
+              <widget class="CheckBox1" name="AIReplySelfCheck">
+               <property name="enabled">
+                <bool>true</bool>
+               </property>
+               <property name="cursor">
+                <cursorShape>PointingHandCursor</cursorShape>
+               </property>
+               <property name="toolTip">
+                <string>是否回复自己的弹幕（不包含自动发送的，但是可能会误识别）
+开启后，容易导致机器人不断回复自己</string>
+               </property>
+               <property name="text">
+                <string>回复自己</string>
+               </property>
+               <property name="tristate">
+                <bool>false</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
               <layout class="QHBoxLayout" name="horizontalLayout_77">
                <property name="spacing">
                 <number>0</number>
@@ -2278,8 +2341,11 @@ margin: 40px;</string>
                  <property name="cursor">
                   <cursorShape>PointingHandCursor</cursorShape>
                  </property>
+                 <property name="toolTip">
+                  <string>支持与GPT相同接口的所有AI（例如第三方GPT接口、DeepSeek等）</string>
+                 </property>
                  <property name="text">
-                  <string>ChatGPT</string>
+                  <string>GPT类</string>
                  </property>
                 </widget>
                </item>
@@ -2295,7 +2361,7 @@ margin: 40px;</string>
                   <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;因业务调整该接口将于北京时间2023年8月1日0点下线，届时该产品功能将无法正常使用。详见：https://cloud.tencent.com/document/product/271/907111&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                  </property>
                  <property name="text">
-                  <string>腾讯</string>
+                  <string>（失效）</string>
                  </property>
                 </widget>
                </item>
@@ -2307,9 +2373,9 @@ margin: 40px;</string>
             <property name="geometry">
              <rect>
               <x>10</x>
-              <y>1140</y>
+              <y>1180</y>
               <width>171</width>
-              <height>231</height>
+              <height>301</height>
              </rect>
             </property>
             <property name="styleSheet">
@@ -2427,63 +2493,7 @@ QPushButton:pressed
              </item>
              <item>
               <layout class="QGridLayout" name="gridLayout_6">
-               <item row="2" column="0">
-                <widget class="QLabel" name="label_73">
-                 <property name="text">
-                  <string>token</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="1">
-                <widget class="QComboBox" name="chatGPTModelNameCombo">
-                 <item>
-                  <property name="text">
-                   <string>gpt-3.5-turbo</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>gpt-3.5-turbo-16k</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>gpt-3.5-turbo-16k-0613</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>gpt-4</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>gpt-4-0613</string>
-                  </property>
-                 </item>
-                </widget>
-               </item>
-               <item row="0" column="0">
-                <widget class="QLabel" name="label_71">
-                 <property name="toolTip">
-                  <string/>
-                 </property>
-                 <property name="text">
-                  <string>秘钥</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="0">
-                <widget class="QLabel" name="label_72">
-                 <property name="toolTip">
-                  <string/>
-                 </property>
-                 <property name="text">
-                  <string>模型</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="2" column="1">
+               <item row="3" column="1">
                 <widget class="QSpinBox" name="chatGPTMaxTokenCountSpin">
                  <property name="contextMenuPolicy">
                   <enum>Qt::NoContextMenu</enum>
@@ -2524,7 +2534,79 @@ QPushButton:pressed
                  </property>
                 </widget>
                </item>
-               <item row="3" column="1">
+               <item row="1" column="1">
+                <widget class="QLineEdit" name="chatGPTKeyEdit">
+                 <property name="toolTip">
+                  <string>ChatGPT 秘钥
+支持OpenAI、API2D的秘钥</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QLineEdit
+{
+	background: transparent;
+}</string>
+                 </property>
+                 <property name="text">
+                  <string/>
+                 </property>
+                 <property name="echoMode">
+                  <enum>QLineEdit::PasswordEchoOnEdit</enum>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QComboBox" name="chatGPTModelNameCombo">
+                 <property name="editable">
+                  <bool>true</bool>
+                 </property>
+                 <item>
+                  <property name="text">
+                   <string>deepseek-chat</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>deepseek-reasoner</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>gpt-3.5-turbo</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>gpt-3.5-turbo-16k</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>gpt-3.5-turbo-16k-0613</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>gpt-4</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>gpt-4-0613</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="label_71">
+                 <property name="toolTip">
+                  <string/>
+                 </property>
+                 <property name="text">
+                  <string>秘钥</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="1">
                 <widget class="QSpinBox" name="chatGPTMaxContextCountSpin">
                  <property name="contextMenuPolicy">
                   <enum>Qt::NoContextMenu</enum>
@@ -2565,7 +2647,14 @@ QPushButton:pressed
                  </property>
                 </widget>
                </item>
-               <item row="3" column="0">
+               <item row="0" column="0">
+                <widget class="QLabel" name="label_81">
+                 <property name="text">
+                  <string>API</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="0">
                 <widget class="QLabel" name="label_75">
                  <property name="toolTip">
                   <string/>
@@ -2575,20 +2664,27 @@ QPushButton:pressed
                  </property>
                 </widget>
                </item>
-               <item row="0" column="1">
-                <widget class="QLineEdit" name="chatGPTKeyEdit">
-                 <property name="toolTip">
-                  <string>ChatGPT 秘钥
-支持OpenAI、API2D的秘钥</string>
+               <item row="3" column="0">
+                <widget class="QLabel" name="label_73">
+                 <property name="text">
+                  <string>token</string>
                  </property>
-                 <property name="styleSheet">
-                  <string notr="true">QLineEdit
-{
-	background: transparent;
-}</string>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="label_72">
+                 <property name="toolTip">
+                  <string/>
                  </property>
                  <property name="text">
-                  <string/>
+                  <string>模型</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QLineEdit" name="chatGPTEndpointEdit">
+                 <property name="text">
+                  <string>https://api.deepseek.com/chat/completions</string>
                  </property>
                 </widget>
                </item>
@@ -2600,9 +2696,9 @@ QPushButton:pressed
             <property name="geometry">
              <rect>
               <x>10</x>
-              <y>1380</y>
+              <y>1520</y>
               <width>211</width>
-              <height>301</height>
+              <height>331</height>
              </rect>
             </property>
             <property name="styleSheet">
@@ -2627,7 +2723,7 @@ QPushButton:pressed
 font-weight: 500;</string>
                </property>
                <property name="text">
-                <string>功能型GPT</string>
+                <string>AI分析</string>
                </property>
                <property name="alignment">
                 <set>Qt::AlignCenter</set>
@@ -2660,7 +2756,7 @@ margin: 40px;</string>
                 <string notr="true">color: gray;</string>
                </property>
                <property name="text">
-                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;使用GPT来识别弹幕。会覆盖AI自动回复的配置，是否发送弹幕取决于事件实现&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;使用AI来识别弹幕类型，并进行不同的操作。会覆盖AI自动回复的配置，是否发送弹幕取决于事件实现&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                </property>
                <property name="wordWrap">
                 <bool>true</bool>
@@ -2668,17 +2764,51 @@ margin: 40px;</string>
               </widget>
              </item>
              <item>
-              <widget class="CheckBox1" name="GPTAnalysisCheck">
-               <property name="cursor">
-                <cursorShape>PointingHandCursor</cursorShape>
-               </property>
-               <property name="toolTip">
-                <string>提前体验新版特性，可能会有未预料的问题</string>
-               </property>
-               <property name="text">
-                <string>启用</string>
-               </property>
-              </widget>
+              <layout class="QHBoxLayout" name="horizontalLayout_85">
+               <item>
+                <widget class="CheckBox1" name="GPTAnalysisCheck">
+                 <property name="cursor">
+                  <cursorShape>PointingHandCursor</cursorShape>
+                 </property>
+                 <property name="toolTip">
+                  <string>提前体验新版特性，可能会有未预料的问题</string>
+                 </property>
+                 <property name="text">
+                  <string>启用</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="GPTAnalysisDefaultButton">
+                 <property name="cursor">
+                  <cursorShape>PointingHandCursor</cursorShape>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QPushButton
+{
+	background: transparent;
+	border: 1px solid lightgray;
+	padding: 2px 8px 2px 8px;
+}
+
+QPushButton:hover
+{
+	background: #eeeeee;
+}
+
+QPushButton:pressed
+{
+	background: #cccccc;
+}
+
+</string>
+                 </property>
+                 <property name="text">
+                  <string> 还原/升级</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
              </item>
              <item>
               <widget class="QPushButton" name="GPTAnalysisPromptButton">
@@ -2706,7 +2836,7 @@ QPushButton:pressed
 </string>
                </property>
                <property name="text">
-                <string>功能提示词</string>
+                <string>分析提示词</string>
                </property>
               </widget>
              </item>
@@ -2798,7 +2928,7 @@ QPushButton:pressed
              </rect>
             </property>
             <property name="toolTip">
-             <string>每次更新后显示更新了什么</string>
+             <string>腾讯AI（已失效）</string>
             </property>
             <property name="styleSheet">
              <string notr="true">#TxNLPSettingsCard
@@ -3179,7 +3309,7 @@ QPushButton:pressed
             <property name="geometry">
              <rect>
               <x>370</x>
-              <y>160</y>
+              <y>180</y>
               <width>161</width>
               <height>151</height>
              </rect>
@@ -4061,6 +4191,9 @@ margin: 40px;</string>
                </property>
                <item>
                 <widget class="CheckBox1" name="acquireHeartCheck">
+                 <property name="enabled">
+                  <bool>false</bool>
+                 </property>
                  <property name="cursor">
                   <cursorShape>PointingHandCursor</cursorShape>
                  </property>
@@ -4074,6 +4207,9 @@ margin: 40px;</string>
                </item>
                <item>
                 <widget class="QSpinBox" name="heartTimeSpin">
+                 <property name="enabled">
+                  <bool>false</bool>
+                 </property>
                  <property name="contextMenuPolicy">
                   <enum>Qt::NoContextMenu</enum>
                  </property>
@@ -4862,7 +4998,7 @@ margin: 40px;</string>
               <x>370</x>
               <y>660</y>
               <width>161</width>
-              <height>111</height>
+              <height>171</height>
              </rect>
             </property>
             <property name="styleSheet">
@@ -4939,6 +5075,39 @@ margin: 40px;</string>
                </property>
                <property name="text">
                 <string>打印日志</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="UAButton">
+               <property name="cursor">
+                <cursorShape>PointingHandCursor</cursorShape>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">QPushButton
+{
+	background: transparent;
+	border: 1px solid lightgray;
+	padding: 2px 4px 2px 4px;
+}
+
+QPushButton:hover
+{
+	background: #eeeeee;
+}
+
+QPushButton:pressed
+{
+	background: #cccccc;
+}
+
+</string>
+               </property>
+               <property name="text">
+                <string>自定义UserAgent</string>
+               </property>
+               <property name="flat">
+                <bool>true</bool>
                </property>
               </widget>
              </item>
@@ -5049,7 +5218,7 @@ margin: 40px;</string>
               <x>550</x>
               <y>10</y>
               <width>201</width>
-              <height>231</height>
+              <height>261</height>
              </rect>
             </property>
             <property name="styleSheet">
@@ -5326,6 +5495,9 @@ QPushButton:pressed
                  <property name="singleStep">
                   <number>5</number>
                  </property>
+                 <property name="value">
+                  <number>5</number>
+                 </property>
                 </widget>
                </item>
                <item>
@@ -5359,6 +5531,9 @@ QPushButton:pressed
                  </property>
                  <property name="singleStep">
                   <number>5</number>
+                 </property>
+                 <property name="value">
+                  <number>60</number>
                  </property>
                 </widget>
                </item>
@@ -5401,12 +5576,26 @@ QPushButton:pressed
                </property>
               </widget>
              </item>
+             <item>
+              <layout class="QHBoxLayout" name="horizontalLayout_83" stretch="0,1">
+               <item>
+                <widget class="QLabel" name="label_89">
+                 <property name="text">
+                  <string>显示器</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QComboBox" name="screenMonitorCombo"/>
+               </item>
+              </layout>
+             </item>
             </layout>
            </widget>
            <widget class="QWidget" name="voiceMainSettingsCard" native="true">
             <property name="geometry">
              <rect>
-              <x>550</x>
+              <x>770</x>
               <y>230</y>
               <width>241</width>
               <height>191</height>
@@ -5688,6 +5877,9 @@ margin: 40px;</string>
 	background: transparent;
 }</string>
                  </property>
+                 <property name="echoMode">
+                  <enum>QLineEdit::PasswordEchoOnEdit</enum>
+                 </property>
                 </widget>
                </item>
                <item row="2" column="0">
@@ -5711,6 +5903,9 @@ margin: 40px;</string>
 {
 	background: transparent;
 }</string>
+                 </property>
+                 <property name="echoMode">
+                  <enum>QLineEdit::PasswordEchoOnEdit</enum>
                  </property>
                 </widget>
                </item>
@@ -6471,7 +6666,7 @@ QPushButton:pressed
               <x>190</x>
               <y>970</y>
               <width>161</width>
-              <height>91</height>
+              <height>111</height>
              </rect>
             </property>
             <property name="styleSheet">
@@ -6563,7 +6758,7 @@ margin: 40px;</string>
               <x>10</x>
               <y>1010</y>
               <width>161</width>
-              <height>121</height>
+              <height>151</height>
              </rect>
             </property>
             <property name="styleSheet">
@@ -6638,6 +6833,22 @@ margin: 40px;</string>
               </widget>
              </item>
              <item>
+              <widget class="CheckBox1" name="codeFileCacheCheck">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+               <property name="cursor">
+                <cursorShape>PointingHandCursor</cursorShape>
+               </property>
+               <property name="toolTip">
+                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;代码使用 &amp;lt;file:xxx&amp;gt; 格式的文件导入时，对其进行缓存，以提高重复运行时的效率，减少磁盘/网络开销。&lt;/p&gt;&lt;p&gt;开启缓存后，如果修改了代码文件，则需要关闭此开关才会刷新缓存。&lt;/p&gt;&lt;p&gt;如果是网络文件，则必定会使用缓存。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+               </property>
+               <property name="text">
+                <string>代码文件缓存</string>
+               </property>
+              </widget>
+             </item>
+             <item>
               <widget class="CheckBox1" name="complexCalcCheck">
                <property name="enabled">
                 <bool>false</bool>
@@ -6678,6 +6889,9 @@ margin: 40px;</string>
             </layout>
            </widget>
            <widget class="QWidget" name="feedbackCard" native="true">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
             <property name="geometry">
              <rect>
               <x>189</x>
@@ -6969,13 +7183,13 @@ margin: 40px;</string>
             <property name="geometry">
              <rect>
               <x>370</x>
-              <y>1190</y>
-              <width>161</width>
-              <height>141</height>
+              <y>1170</y>
+              <width>181</width>
+              <height>191</height>
              </rect>
             </property>
             <property name="toolTip">
-             <string>每次更新后显示更新了什么</string>
+             <string>当前直播间的专属数据库</string>
             </property>
             <property name="styleSheet">
              <string notr="true">#databaseSettingsCard
@@ -7027,6 +7241,19 @@ margin: 40px;</string>
               </widget>
              </item>
              <item>
+              <widget class="QLabel" name="label_87">
+               <property name="styleSheet">
+                <string notr="true">color: gray;</string>
+               </property>
+               <property name="text">
+                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;精确保存直播间多种数据，便于查询与统计&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
               <widget class="CheckBox1" name="saveToSqliteCheck">
                <property name="cursor">
                 <cursorShape>PointingHandCursor</cursorShape>
@@ -7042,7 +7269,7 @@ margin: 40px;</string>
 数据库默认位置：安装目录/database.db</string>
                </property>
                <property name="text">
-                <string>保存所有记录【捐赠版】</string>
+                <string>保存所有记录【开发版】</string>
                </property>
               </widget>
              </item>
@@ -7204,7 +7431,7 @@ margin: 40px;</string>
                   <number>1</number>
                  </property>
                  <property name="maximum">
-                  <number>40960</number>
+                  <number>65535</number>
                  </property>
                  <property name="singleStep">
                   <number>1</number>
@@ -7306,6 +7533,368 @@ margin: 40px;</string>
                  </property>
                  <property name="text">
                   <string/>
+                 </property>
+                 <property name="echoMode">
+                  <enum>QLineEdit::PasswordEchoOnEdit</enum>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="fansArchivesSettingsCard" native="true">
+            <property name="geometry">
+             <rect>
+              <x>430</x>
+              <y>1370</y>
+              <width>161</width>
+              <height>151</height>
+             </rect>
+            </property>
+            <property name="toolTip">
+             <string>每一位粉丝的独立档案</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">#fansArchivesSettingsCard
+{
+	background: #f7f7ff;
+	border: none;
+	border-radius: 5px;
+}</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_89">
+             <item>
+              <widget class="QLabel" name="label_86">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">font-size: 14px;
+font-weight: 500;</string>
+               </property>
+               <property name="text">
+                <string>AI粉丝档案</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QWidget" name="widget_46" native="true">
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>1</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>16777215</width>
+                 <height>1</height>
+                </size>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">background: lightgray;
+margin: 40px;</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="label_88">
+               <property name="styleSheet">
+                <string notr="true">color: gray;</string>
+               </property>
+               <property name="text">
+                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;基于数据库的统计功能，需要足量弹幕&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="CheckBox1" name="fansArchivesCheck">
+               <property name="cursor">
+                <cursorShape>PointingHandCursor</cursorShape>
+               </property>
+               <property name="toolTip">
+                <string>为所有活跃粉丝自动生成档案记录</string>
+               </property>
+               <property name="text">
+                <string>启用【开发版】</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="CheckBox1" name="fansArchivesByRoomCheck">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+               <property name="cursor">
+                <cursorShape>PointingHandCursor</cursorShape>
+               </property>
+               <property name="toolTip">
+                <string>如果开启，则只会分析当前直播间的弹幕；否则检测所有直播间的弹幕</string>
+               </property>
+               <property name="text">
+                <string>区分直播间</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="proxySettingsCard" native="true">
+            <property name="geometry">
+             <rect>
+              <x>790</x>
+              <y>440</y>
+              <width>161</width>
+              <height>261</height>
+             </rect>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">#proxySettingsCard
+{
+	background: #f7f7ff;
+	border: none;
+	border-radius: 5px;
+}</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_96">
+             <item>
+              <widget class="QLabel" name="label_91">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">font-size: 14px;
+font-weight: 500;</string>
+               </property>
+               <property name="text">
+                <string>代理</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QWidget" name="widget_47" native="true">
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>1</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>16777215</width>
+                 <height>1</height>
+                </size>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">background: lightgray;
+margin: 40px;</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QGridLayout" name="gridLayout_8">
+               <item row="1" column="1">
+                <widget class="QLineEdit" name="proxyHostEdit">
+                 <property name="toolTip">
+                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;邮件主机的地址，不需要 smtps:// 这样的前缀&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QLineEdit
+{
+	background: transparent;
+}</string>
+                 </property>
+                 <property name="text">
+                  <string/>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="label_95">
+                 <property name="text">
+                  <string>端口</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="1">
+                <widget class="QLineEdit" name="proxyPasswordEdit">
+                 <property name="toolTip">
+                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;发送者的密码/授权码&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QLineEdit
+{
+	background: transparent;
+}</string>
+                 </property>
+                 <property name="text">
+                  <string/>
+                 </property>
+                 <property name="echoMode">
+                  <enum>QLineEdit::PasswordEchoOnEdit</enum>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QSpinBox" name="proxyPortSpin">
+                 <property name="contextMenuPolicy">
+                  <enum>Qt::NoContextMenu</enum>
+                 </property>
+                 <property name="toolTip">
+                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;邮件服务的主机的端口&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QAbstractSpinBox
+{
+	background: transparent;
+}</string>
+                 </property>
+                 <property name="frame">
+                  <bool>false</bool>
+                 </property>
+                 <property name="alignment">
+                  <set>Qt::AlignCenter</set>
+                 </property>
+                 <property name="suffix">
+                  <string/>
+                 </property>
+                 <property name="prefix">
+                  <string/>
+                 </property>
+                 <property name="minimum">
+                  <number>1</number>
+                 </property>
+                 <property name="maximum">
+                  <number>65535</number>
+                 </property>
+                 <property name="singleStep">
+                  <number>1</number>
+                 </property>
+                 <property name="value">
+                  <number>1080</number>
+                 </property>
+                 <property name="displayIntegerBase">
+                  <number>10</number>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="1">
+                <widget class="QLineEdit" name="proxyUsernameEdit">
+                 <property name="toolTip">
+                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;发送者的邮箱&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QLineEdit
+{
+	background: transparent;
+}</string>
+                 </property>
+                 <property name="text">
+                  <string/>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="0">
+                <widget class="QLabel" name="label_92">
+                 <property name="toolTip">
+                  <string/>
+                 </property>
+                 <property name="text">
+                  <string>类型</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="0">
+                <widget class="QLabel" name="label_93">
+                 <property name="toolTip">
+                  <string/>
+                 </property>
+                 <property name="text">
+                  <string>用户</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="label_94">
+                 <property name="toolTip">
+                  <string/>
+                 </property>
+                 <property name="text">
+                  <string>主机</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="0">
+                <widget class="QLabel" name="label_96">
+                 <property name="toolTip">
+                  <string/>
+                 </property>
+                 <property name="text">
+                  <string>密码</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QComboBox" name="proxyTypeCombo">
+                 <item>
+                  <property name="text">
+                   <string>不使用</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>SOCKS5</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>HTTP</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="5" column="1">
+                <widget class="QPushButton" name="proxyTestIPButton">
+                 <property name="cursor">
+                  <cursorShape>PointingHandCursor</cursorShape>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">QPushButton
+{
+	background: transparent;
+	border: 1px solid lightgray;
+	padding: 2px 8px 2px 8px;
+}
+
+QPushButton:hover
+{
+	background: #eeeeee;
+}
+
+QPushButton:pressed
+{
+	background: #cccccc;
+}
+
+</string>
+                 </property>
+                 <property name="text">
+                  <string>测试IP</string>
                  </property>
                 </widget>
                </item>
@@ -7503,7 +8092,7 @@ margin: 40px;</string>
 }</string>
           </property>
           <property name="currentIndex">
-           <number>0</number>
+           <number>3</number>
           </property>
           <widget class="QWidget" name="page">
            <layout class="QVBoxLayout" name="verticalLayout_35">
@@ -9654,7 +10243,7 @@ QCheckBox::indicator:checked:pressed {
            <cursorShape>PointingHandCursor</cursorShape>
           </property>
           <property name="text">
-           <string>免费版用户无法使用回复、事件等功能</string>
+           <string>本页为开发版专属功能</string>
           </property>
          </widget>
         </item>
@@ -9695,7 +10284,7 @@ QTabBar::tab:selected
 </string>
           </property>
           <property name="currentIndex">
-           <number>3</number>
+           <number>4</number>
           </property>
           <widget class="QWidget" name="tabTimer">
            <attribute name="title">
@@ -9972,7 +10561,7 @@ QTabBar::tab:selected
                     <cursorShape>PointingHandCursor</cursorShape>
                    </property>
                    <property name="toolTip">
-                    <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;允许来自网页的消息反向控制神奇弹幕&lt;/p&gt;&lt;p&gt;请仅在必要且确认安全的情况下启用&lt;/p&gt;&lt;p&gt;包括但不限于：发送弹幕、修改设置、禁言用户、发送私信、调用B站API等所有函数命令&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                    <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;允许来自网页的消息反向控制神奇弹幕，请仅在必要且确认安全的情况下启用！&lt;/p&gt;&lt;p&gt;包括但不限于：发送弹幕、读写设置、禁言用户、发送私信、调用B站API等所有操作。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                    </property>
                    <property name="text">
                     <string>解锁安全限制</string>
@@ -10093,6 +10682,423 @@ QTabBar::tab:selected
             </item>
            </layout>
           </widget>
+          <widget class="QWidget" name="tabSubAccount">
+           <attribute name="title">
+            <string>子账号</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="verticalLayout_94">
+            <property name="spacing">
+             <number>7</number>
+            </property>
+            <property name="leftMargin">
+             <number>20</number>
+            </property>
+            <property name="topMargin">
+             <number>12</number>
+            </property>
+            <property name="rightMargin">
+             <number>20</number>
+            </property>
+            <property name="bottomMargin">
+             <number>20</number>
+            </property>
+            <item>
+             <widget class="QWidget" name="subAccountDescWidget" native="true">
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">#subAccountDescWidget
+{
+	background: #ffffff;
+	border: none;
+	border-radius: 5px;
+}</string>
+              </property>
+              <layout class="QVBoxLayout" name="verticalLayout_95">
+               <item>
+                <layout class="QHBoxLayout" name="horizontalLayout_80">
+                 <property name="spacing">
+                  <number>12</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="InteractiveButtonBase" name="addSubAccountButton">
+                   <property name="toolTip">
+                    <string>添加子账号</string>
+                   </property>
+                   <property name="text">
+                    <string/>
+                   </property>
+                   <property name="icon">
+                    <iconset resource="../resources/resource.qrc">
+                     <normaloff>:/icons/add</normaloff>:/icons/add</iconset>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="InteractiveButtonBase" name="refreshSubAccountButton">
+                   <property name="toolTip">
+                    <string>检查所有子账号的登录状态
+用来判断哪些账号已过期</string>
+                   </property>
+                   <property name="text">
+                    <string/>
+                   </property>
+                   <property name="icon">
+                    <iconset resource="../resources/resource.qrc">
+                     <normaloff>:/icons/refresh</normaloff>:/icons/refresh</iconset>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer name="horizontalSpacer_46">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                 <item>
+                  <widget class="InteractiveButtonBase" name="subAccountDescButton">
+                   <property name="enabled">
+                    <bool>false</bool>
+                   </property>
+                   <property name="toolTip">
+                    <string>子账号功能的说明</string>
+                   </property>
+                   <property name="text">
+                    <string/>
+                   </property>
+                   <property name="icon">
+                    <iconset resource="../resources/resource.qrc">
+                     <normaloff>:/icons/help</normaloff>:/icons/help</iconset>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item>
+                <widget class="QLabel" name="label_90">
+                 <property name="text">
+                  <string>可通过代码中添加选项“(ac:?/ID/UID/昵称)”来随机或指定账号。
+开发版仅绑定主账号，其默认ID为0。</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QTableWidget" name="subAccountTableWidget">
+              <property name="contextMenuPolicy">
+               <enum>Qt::CustomContextMenu</enum>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">#subAccountTreeWidget
+{
+	background: #ffffff;
+	border: none;
+	border-radius: 5px;
+}</string>
+              </property>
+              <property name="selectionMode">
+               <enum>QAbstractItemView::SingleSelection</enum>
+              </property>
+              <property name="selectionBehavior">
+               <enum>QAbstractItemView::SelectRows</enum>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="archivePage">
+       <layout class="QVBoxLayout" name="verticalLayout_7">
+        <property name="spacing">
+         <number>2</number>
+        </property>
+        <property name="leftMargin">
+         <number>9</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>6</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="InteractiveButtonBase" name="vipDatabaseButton">
+          <property name="cursor">
+           <cursorShape>PointingHandCursor</cursorShape>
+          </property>
+          <property name="text">
+           <string>免费版用户无法使用本页的档案、数据库等功能</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QWidget" name="widget" native="true">
+          <layout class="QHBoxLayout" name="horizontalLayout_84" stretch="1,0,1">
+           <property name="spacing">
+            <number>0</number>
+           </property>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <item>
+            <spacer name="horizontalSpacer_44">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QWidget" name="dataCenterTopTabGroup" native="true">
+             <property name="minimumSize">
+              <size>
+               <width>90</width>
+               <height>20</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">#dataCenterTopTabGroup
+{
+	background: white;
+	border-radius: 10px;
+}</string>
+             </property>
+             <layout class="QHBoxLayout" name="horizontalLayout_81">
+              <property name="spacing">
+               <number>0</number>
+              </property>
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <item>
+               <widget class="WaterFloatButton" name="fansArchivesTabButton">
+                <property name="cursor">
+                 <cursorShape>PointingHandCursor</cursorShape>
+                </property>
+                <property name="text">
+                 <string>粉丝档案</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="WaterFloatButton" name="databaseTabButton">
+                <property name="cursor">
+                 <cursorShape>PointingHandCursor</cursorShape>
+                </property>
+                <property name="text">
+                 <string>数据库</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_45">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>392</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QStackedWidget" name="dataCenterStackedWidget">
+          <property name="currentIndex">
+           <number>0</number>
+          </property>
+          <widget class="QWidget" name="fansArchivesPage">
+           <layout class="QVBoxLayout" name="verticalLayout_93" stretch="1,0">
+            <property name="spacing">
+             <number>2</number>
+            </property>
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QSplitter" name="fansArchivesSplitter">
+              <property name="styleSheet">
+               <string notr="true">QTableView, QPlainTextEdit
+{
+	background: #EEFFFFFF;
+	border-radius: 5px;
+}</string>
+              </property>
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <widget class="QWidget" name="verticalLayoutWidget">
+               <layout class="QVBoxLayout" name="verticalLayout_91">
+                <item>
+                 <widget class="QTableView" name="fansArchivesTableView">
+                  <property name="maximumSize">
+                   <size>
+                    <width>16777215</width>
+                    <height>16777215</height>
+                   </size>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="fansArchiveStatusLabel">
+                  <property name="text">
+                   <string/>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+              <widget class="QPlainTextEdit" name="fansArchivesTextEdit">
+               <property name="readOnly">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </widget>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="horizontalLayout_82">
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <item>
+               <widget class="QLabel" name="fansArchiveLoadingLabel">
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="horizontalSpacer_47">
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+              <item>
+               <widget class="QPushButton" name="refreshFansArchivesButton">
+                <property name="text">
+                 <string>刷新</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="clearFansArchivesButton">
+                <property name="text">
+                 <string>清空</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="databasePage">
+           <layout class="QVBoxLayout" name="verticalLayout_90">
+            <property name="spacing">
+             <number>2</number>
+            </property>
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QWidget" name="databaseCenterWidget" native="true">
+              <layout class="QVBoxLayout" name="verticalLayout_92">
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="DBBrowser" name="databaseWidget" native="true"/>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </widget>
          </widget>
         </item>
        </layout>
@@ -10189,7 +11195,7 @@ font-weight: 500;</string>
              <item>
               <widget class="QLabel" name="tenCardLabel2">
                <property name="text">
-                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;本程序由&lt;a href=&quot;https://github.com/iwxyi&quot;&gt;&lt;span style=&quot;text-decoration: none; color:#8cc2d4;&quot;&gt;心乂&lt;/span&gt;&lt;/a&gt;随手开发，仅供个人学习、研究之用。&lt;/p&gt;&lt;p&gt;内部研讨群: &lt;a target=&quot;_blank&quot; href=&quot;https://qm.qq.com/cgi-bin/qm/qr?k=aEmgi6tVdIvdxzxJ27Fwc6Feootcr7XO&amp;jump_from=webapi&quot;&gt;&lt;span style=&quot;text-decoration: none; color:#8cc2d4;&quot;&gt;1038738410&lt;/span&gt;&lt;/a&gt;&amp;nbsp;&amp;nbsp;&lt;a href=&quot;this://qq_qrcode&quot;&gt;&lt;img src=&quot;:/icons/qrcode_small&quot; style=&quot;width:16px;height:16px;&quot; /&gt;&lt;/a&gt;&lt;/p&gt;&lt;p&gt;若觉得好用，&lt;a href=&quot;this://donation&quot;&gt;&lt;span style=&quot;text-decoration: none; color:#8cc2d4;&quot;&gt;请开发者恰顿饭&lt;/span&gt;&lt;/a&gt;吧&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;本程序由&lt;a href=&quot;https://github.com/iwxyi&quot;&gt;&lt;span style=&quot; color:#8cc2d4;&quot;&gt;心乂&lt;/span&gt;&lt;/a&gt;随手开发，仅供个人学习、研究之用。&lt;/p&gt;&lt;p&gt;内部研讨群: &lt;a href=&quot;https://qm.qq.com/q/GecYN0kjyS&quot;&gt;&lt;span style=&quot; color:#8cc2d4;&quot;&gt;427436529&lt;/span&gt;&lt;/a&gt;&lt;a href=&quot;this://copy_qq_group&quot;&gt;&lt;img src=&quot;:/icons/copy_small&quot;/&gt;&lt;/a&gt;&lt;a href=&quot;this://qq_qrcode&quot;&gt;&lt;img src=&quot;:/icons/qrcode_small&quot;/&gt;&lt;/a&gt;&lt;/p&gt;&lt;p&gt;若觉得好用，&lt;a href=&quot;this://donation&quot;&gt;&lt;span style=&quot; color:#8cc2d4;&quot;&gt;请开发者恰顿饭&lt;/span&gt;&lt;/a&gt;吧&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                </property>
                <property name="wordWrap">
                 <bool>true</bool>
@@ -10413,8 +11419,8 @@ font-weight: 500;</string>
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1017</width>
-     <height>22</height>
+     <width>1054</width>
+     <height>37</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu_2">
@@ -10435,6 +11441,7 @@ font-weight: 500;</string>
      <string>账号</string>
     </property>
     <addaction name="actionQRCode_Login"/>
+    <addaction name="actionWebViewLogin"/>
     <addaction name="actionSet_Cookie"/>
     <addaction name="actionSet_Danmaku_Data_Format"/>
     <addaction name="separator"/>
@@ -10894,6 +11901,15 @@ font-weight: 500;</string>
     <string>查询数据库</string>
    </property>
   </action>
+  <action name="actionWebViewLogin">
+   <property name="icon">
+    <iconset resource="../resources/resource.qrc">
+     <normaloff>:/icons/local</normaloff>:/icons/local</iconset>
+   </property>
+   <property name="text">
+    <string>浏览器登录</string>
+   </property>
+  </action>
  </widget>
  <customwidgets>
   <customwidget>
@@ -10959,6 +11975,12 @@ font-weight: 500;</string>
    <class>CheckBox1</class>
    <extends>QCheckBox</extends>
    <header>checkbox1.h</header>
+  </customwidget>
+  <customwidget>
+   <class>DBBrowser</class>
+   <extends>QWidget</extends>
+   <header>dbbrowser.h</header>
+   <container>1</container>
   </customwidget>
  </customwidgets>
  <resources>

@@ -1,5 +1,6 @@
 格式化时间=time
 查找用户名=unameToUid
+忽略空=ignoreEmpty
 输入文本=inputText
 取文本长度=strlen
 删首尾空=trim
@@ -49,3 +50,6 @@ SQL查询=SQLQuery
 获取鼠标位置=getCursorPos
 获取窗口位置=getWindowRect
 获取坐标所在窗口=getWindowFromPoint
+获取弹幕历史=getDanmuHistory
+遍历JSON=traverseJson
+WBI签名=toWbiParams

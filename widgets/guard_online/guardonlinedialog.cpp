@@ -11,8 +11,9 @@
 #include <QDesktopServices>
 #include "guardonlinedialog.h"
 #include "ui_guardonlinedialog.h"
+#include "usersettings.h"
 
-GuardOnlineDialog::GuardOnlineDialog(QSettings *settings, QString roomId, QString upUid, QWidget *parent) :
+GuardOnlineDialog::GuardOnlineDialog(QSettings *settings, QString roomId, UIDT upUid, QWidget *parent) :
     QDialog(parent),
     ui(new Ui::GuardOnlineDialog), settings(settings), roomId(roomId), upUid(upUid)
 {
@@ -52,7 +53,11 @@ void GuardOnlineDialog::refreshOnlineGuards(int page)
 
         ui->tableWidget->setRowCount(ui->tableWidget->rowCount()+1);
 
-        qint64 uid = qint64(user.value("uid").toDouble());
+        UIDT uid;
+        if (user.value("uid").isString())
+            uid = user.value("uid").toString();
+        else
+            uid = QString::number(qint64(user.value("uid").toDouble()));
         QString uname = user.value("username").toString();
         int guard_level = user.value("guard_level").toInt();
         QJsonObject medalInfo = user.value("medal_info").toObject();
@@ -71,7 +76,8 @@ void GuardOnlineDialog::refreshOnlineGuards(int page)
     QNetworkAccessManager* manager = new QNetworkAccessManager;
     QNetworkRequest* request = new QNetworkRequest(url);
     request->setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded; charset=UTF-8");
-    request->setHeader(QNetworkRequest::UserAgentHeader, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.111 Safari/537.36");
+    QString ua = us->value("debug/userAgent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.111 Safari/537.36").toString();
+    request->setHeader(QNetworkRequest::UserAgentHeader, ua);
     connect(manager, &QNetworkAccessManager::finished, this, [=](QNetworkReply* reply){
         QByteArray ba = reply->readAll();
         manager->deleteLater();

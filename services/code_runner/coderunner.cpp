@@ -1,6 +1,5 @@
 #include "coderunner.h"
 #include "conditionutil.h"
-#include "calculator/calculator_util.h"
 #include "ui_mainwindow.h"
 #ifdef Q_OS_WIN
 #include "widgets/windowshwnd.h"
@@ -10,24 +9,82 @@
 #include "replywidget.h"
 #include "fileutil.h"
 #include "ImageSimilarityUtil.h"
+#include "netutil.h"
+#include "signaltransfer.h"
+#include "bili_liveservice.h"
 
 CodeRunner::CodeRunner(QObject *parent) : QObject(parent)
 {
+    // 全局替换
+    connect(st, &SignalTransfer::replaceDanmakuVariables, this, [=](QString* text, const LiveDanmaku& danmaku) {
+        *text = processDanmakuVariants(*text, danmaku);
+    });
+    
     // 等待通道
     for (int i = 0; i < CHANNEL_COUNT; i++)
         msgWaits[i] = WAIT_CHANNEL_MAX;
 
     // 发送队列
     autoMsgTimer = new QTimer(this) ;
-    autoMsgTimer->setInterval(1500); // 1.5秒发一次弹幕
+    autoMsgTimer->setInterval(AUTO_MSG_CD); // 1.5秒发一次弹幕
     connect(autoMsgTimer, &QTimer::timeout, this, [=]{
         slotSendAutoMsg(true);
     });
+
+    // 编程引擎
+    jsEngine = new JSEngine(this);
+    jsEngine->setHeaps(heaps);
+    connect(jsEngine, &JSEngine::signalError, this, [=](const QString& err){
+        emit signalShowError("JS引擎", err);
+    });
+    connect(jsEngine, &JSEngine::signalLog, this, [=](const QString& log){
+        localNotify(log);
+    });
+
+    luaEngine = new LuaEngine(this);
+    luaEngine->setHeaps(heaps);
+    connect(luaEngine, &LuaEngine::signalError, this, [=](const QString& err){
+        emit signalShowError("Lua引擎", err);
+    });
+    connect(luaEngine, &LuaEngine::signalLog, this, [=](const QString& log){
+        localNotify(log);
+    });
+
+    pythonEngine = new PythonEngine(this);
+    pythonEngine->setHeaps(heaps);
+    connect(pythonEngine, &PythonEngine::signalError, this, [=](const QString& err){
+        emit signalShowError("Python引擎", err);
+    });
+    connect(pythonEngine, &PythonEngine::signalLog, this, [=](const QString& log){
+        localNotify(log);
+    });
+
+    qmlEngine = new QmlEngine(this);
+    qmlEngine->setHeaps(heaps);
+    connect(qmlEngine, &QmlEngine::signalError, this, [=](const QString& err){
+        emit signalShowError("QML引擎", err);
+    });
+    connect(qmlEngine, &QmlEngine::signalLog, this, [=](const QString& log){
+        localNotify(log);
+    });
+    connect(qmlEngine, &QmlEngine::signalCmd, this, [=](const QString& cmd){
+        sendAutoMsg(cmd, LiveDanmaku());
+    });
 }
 
-void CodeRunner::setLiveService(LiveRoomService *service)
+void CodeRunner::setLiveService(LiveServiceBase *service)
 {
     this->liveService = service;
+}
+
+/// 这里才是真正设置heaps的地方
+void CodeRunner::setHeaps(MySettings *heaps)
+{
+    this->heaps = heaps;
+    jsEngine->setHeaps(heaps);
+    luaEngine->setHeaps(heaps);
+    pythonEngine->setHeaps(heaps);
+    qmlEngine->setHeaps(heaps);
 }
 
 void CodeRunner::setMainUI(Ui::MainWindow *ui)
@@ -60,6 +117,54 @@ void CodeRunner::releaseData()
 }
 
 /**
+ * 从文件名获取到对于的文件
+ * @param name URL、绝对路径、相对路径、文件名简写等等
+ * @return 文件内容
+ */
+QString CodeRunner::getCodeContentFromFile(QString name) const
+{
+    /// 如果是 URL，网络文件
+    if (name.startsWith("http://") || name.startsWith("https://"))
+    {
+        static QMap<QString, QString> cache; // 网络文件的代码的缓存
+        if (cache.contains(name))
+            return cache[name];
+        QByteArray data = NetUtil::getWebFile(name);
+        QString content = QString::fromUtf8(data);
+        cache[name] = content;
+        return content;
+    }
+    
+    /// 如果是文件，那么不进行缓存，因为随时有可能进行修改
+    // 如果是绝对路径或相对路径
+    if (QFile::exists(name))
+        return readTextFileAutoCodec(name);
+
+    /// 如果是文件简写，可以是带后缀，或者不带后缀的
+    // 获取 dataPath/codes/ 下的所有文件名（先是带后缀的）
+    QDir dir(rt->dataPath + "codes/");
+    QStringList files = dir.entryList(QDir::Files | QDir::NoDotAndDotDot);
+    foreach (QString file, files)
+    {
+        if (file == name)
+        {
+            qDebug() << "读取默认目录下代码文件：" << name;
+            return readTextFileAutoCodec(dir.absoluteFilePath(file));
+        }
+    }
+    // 再是不带后缀的
+    foreach (QString file, files)
+    {
+        if (file.left(file.lastIndexOf(".")) == name)
+        {
+            qDebug() << "读取默认目录下简写代码文件：" << name;
+            return readTextFileAutoCodec(dir.absoluteFilePath(file));
+        }
+    }
+    return readTextFileAutoCodec(name);
+}
+
+/**
  * 发送带有变量的弹幕或者执行代码
  * @param msg       多行，带变量
  * @param danmaku   参数
@@ -70,15 +175,38 @@ void CodeRunner::releaseData()
  */
 bool CodeRunner::sendVariantMsg(QString msg, const LiveDanmaku &danmaku, int channel, bool manual, bool delayMine)
 {
+    // 多段代码判断，在所有情况之前
+    if (msg.contains(QRegularExpression("^\\s*-{3,}\\s*$", QRegularExpression::MultilineOption)))
+    {
+        QStringList codes = msg.split(QRegularExpression("^\\s*-{3,}\\s*$", QRegularExpression::MultilineOption), QString::SkipEmptyParts);
+        bool hasSuccess = false;
+        foreach (QString code, codes)
+        {
+            if (sendVariantMsg(code, danmaku, channel, manual, delayMine))
+                hasSuccess = true;
+        }
+        return hasSuccess;
+    }
+    
+    // 编程语言或代码文件
+    bool ok;
+    msg = replaceCodeLanguage(msg, danmaku, &ok);
+    if (ok)
+    {
+        return sendVariantMsg(msg, danmaku, channel, manual, delayMine);
+    }
+    
+    // 解析变量、条件
     QStringList msgs = getEditConditionStringList(msg, danmaku);
     if (!msgs.size())
         return false;
 
+    // 随机选择一条消息
     int r = qrand() % msgs.size();
     QString s = msgs.at(r);
     if (!s.trimmed().isEmpty())
     {
-        if (delayMine && QString::number(danmaku.getUid()) == ac->cookieUid) // 自己发的，自己回复，必须要延迟一会儿
+        if (delayMine && danmaku.getUid() == ac->cookieUid) // 自己发的，自己回复，必须要延迟一会儿
         {
             if (s.contains(QRegExp("cd\\d+\\s*:\\s*\\d+"))) // 带冷却通道，不能放前面
                 autoMsgTimer->start(); // 先启动，避免立即发送
@@ -183,6 +311,11 @@ void CodeRunner::slotSendAutoMsg(bool timeout)
     if (!autoMsgQueues.size())
         autoMsgTimer->stop();
 
+    // 判断是否有子账号信息，并提取相关Cookie
+    QString subAccountArg = danmaku->getSubAccount();
+    QString accountCookie = us->getSubAccountCookie(subAccountArg);
+
+    // 弹幕纯文本，或者命令
     CmdResponse res = NullRes;
     int resVal = 0;
     bool exec = execFuncCallback(msg, *danmaku, res, resVal);
@@ -191,9 +324,9 @@ void CodeRunner::slotSendAutoMsg(bool timeout)
         msg = msgToShort(msg);
         addNoReplyDanmakuText(msg);
         if (danmaku->isRetry())
-            liveService->sendRoomMsg(danmaku->getRoomId(), msg);
+            liveService->sendRoomMsg(danmaku->getRoomId(), msg, accountCookie);
         else
-            liveService->sendMsg(msg);
+            liveService->sendMsg(msg, accountCookie);
         inDanmakuCd = true;
         us->setValue("danmaku/robotTotalSend", ++robotTotalSendMsg);
         ui->robotSendCountLabel->setText(snum(robotTotalSendMsg));
@@ -311,6 +444,15 @@ void CodeRunner::sendCdMsg(QString msg, LiveDanmaku danmaku, int cd, int channel
             {
                 forceAdmin = true;
                 continue;
+            }
+
+            // 发送Cookie
+            re.setPattern("^(?:ac|account)\\s*[=:]\\s*(\\S+)$");
+            if (option.indexOf(re, 0, &match) > -1)
+            {
+                caps = match.capturedTexts();
+                QString sub = caps.at(1);
+                danmaku.setSubAccount(sub);
             }
         }
 
@@ -551,6 +693,75 @@ QString CodeRunner::processTimeVariants(QString msg) const
     return msg;
 }
 
+QString CodeRunner::replaceCodeLanguage(QString code, const LiveDanmaku& danmaku, bool *ok)
+{
+    QString msg = code;
+    *ok = true;
+
+    // 文件判断
+    if (msg.contains("<file:"))
+    {
+        QRegularExpression re("\\s*<\\s*file\\s*:\\s*(.*)\\s*>\\s*");
+        QRegularExpressionMatch match;
+        if (msg.contains(re, &match))
+        {
+            QString placeholder = match.captured(0);
+            QString name = match.captured(1); // 文件名/文件路径
+            qDebug() << "加载代码文件：" << name;
+            QString content = getCodeContentFromFile(name);
+            msg = msg.replace(placeholder, content);
+            return msg;
+        }
+    }
+
+    // 判断是否是自定义编程语言
+    QRegularExpressionMatch match;
+    if (msg.contains(QRegularExpression("^\\s*var:\\s*", QRegularExpression::CaseInsensitiveOption), &match)) // 替换变量
+    {
+        QString code = msg.mid(match.capturedLength());
+        code = processDanmakuVariants(code, danmaku);
+        return code;
+    }
+    else if (msg.contains(QRegularExpression("^\\s*(js|javascript):\\s*", QRegularExpression::CaseInsensitiveOption), &match))
+    {
+        QString code = msg.mid(match.capturedLength());
+        QString result = jsEngine->runCode(danmaku, code);
+        return result;
+    }
+    else if (msg.contains(QRegularExpression("^\\s*lua:\\s*", QRegularExpression::CaseInsensitiveOption), &match))
+    {
+        QString code = msg.mid(match.capturedLength());
+        QString result = luaEngine->runCode(danmaku, code);
+        return result;
+    }
+    else if (msg.contains(QRegularExpression("^\\s*(python|python3|py|py3):\\s*", QRegularExpression::CaseInsensitiveOption), &match))
+    {
+        QString exeName = match.captured(1);
+        if (exeName == "py") exeName = "python";
+        else if (exeName == "py3") exeName = "python3";
+        QString code = msg.mid(match.capturedLength());
+        QString result = pythonEngine->runCode(danmaku, exeName, code);
+        return result;
+    }
+    else if (msg.contains(QRegularExpression("^\\s*exec:(.+?):\\s*", QRegularExpression::CaseInsensitiveOption), &match))
+    {
+        QString exePath = match.captured(1);
+        exePath.replace("<codes>", rt->dataPath + "codes");
+        QString code = msg.mid(match.capturedLength());
+        QString result = pythonEngine->runCode(danmaku, exePath, code);
+        return result;
+    }
+    else if (msg.contains(QRegularExpression("^\\s*qml:\\s*", QRegularExpression::CaseInsensitiveOption), &match))
+    {
+        QString code = msg.mid(match.capturedLength());
+        QString result = qmlEngine->runCode(danmaku, code);
+        return "";
+    }
+
+    *ok = false;
+    return msg;
+}
+
 /**
  * 获取可以发送的代码的列表
  * @param plainText 为替换变量的纯文本，允许使用\\n分隔的单行
@@ -586,8 +797,8 @@ QStringList CodeRunner::getEditConditionStringList(QString plainText, LiveDanmak
             QString s = result.at(i);
             if (s.contains(">") || s.contains("\\n")) // 包含多行或者命令的，不需要或者懒得判断长度
                 continue;
-            s = s.replace(QRegExp("^\\s+\\(\\s*[\\w\\d: ,]*\\s*\\)"), "").replace("*", "").trimmed(); // 去掉发送选项
-            // s = s.replace(QRegExp("^\\s+\\(\\s*cd\\d+\\s*:\\s*\\d+\\s*\\)"), "").replace("*", "").trimmed();
+            s = s.replace(QRegExp("^[\\s\\*]*\\([\\w\\d:\\s,]*\\)"), "").replace("*", "").trimmed(); // 去掉发送选项
+            // s = s.replace(QRegExp("^\\s*\\**\\s*\\(\\s*cd\\d+\\s*:\\s*\\d+\\s*\\)"), "").replace("*", "").trimmed();
             if (s.length() > ac->danmuLongest && !s.contains("%"))
             {
                 if (us->debugPrint)
@@ -653,10 +864,34 @@ QString CodeRunner::processDanmakuVariants(QString msg, const LiveDanmaku& danma
         msg.replace(_var, text);
     }
 
+    // 生成代码
+    re = QRegularExpression("^\\s*#\\s*(\\w+)\\s*\\((.+)\\)\\s*$", QRegularExpression::MultilineOption);
+    int matchPos = 0;
+    bool ok;
+    while ((matchPos = msg.indexOf(re, matchPos, &match)) > -1)
+    {
+        QString mat = match.captured(0);
+        QString funcName = match.captured(1);
+        QString args = match.captured(2);
+        QString rpls = generateCodeFunctions(funcName, args, danmaku, &ok);
+        if (ok)
+        {
+            msg.replace(mat, rpls);
+            matchPos = matchPos + rpls.length();
+        }
+        else
+        {
+            if (mat.length() > 1 && mat.endsWith("%"))
+                matchPos += mat.length() - 1;
+            else
+                matchPos += mat.length();
+        }
+    }
+
     // 自定义变量
     for (auto it = us->customVariant.begin(); it != us->customVariant.end(); ++it)
     {
-        msg.replace(it->first, it->second);
+        msg.replace(QRegularExpression(it->first), it->second);
     }
 
     // 翻译
@@ -670,8 +905,7 @@ QString CodeRunner::processDanmakuVariants(QString msg, const LiveDanmaku& danma
 
     // 弹幕变量、环境变量（固定文字）
     re = QRegularExpression("%[\\w_]+%");
-    int matchPos = 0;
-    bool ok;
+    matchPos = 0;
     while ((matchPos = msg.indexOf(re, matchPos, &match)) > -1)
     {
         QString mat = match.captured(0);
@@ -696,7 +930,7 @@ QString CodeRunner::processDanmakuVariants(QString msg, const LiveDanmaku& danma
     {
         QString _var = match.captured(0);
         QString text = match.captured(1);
-        msg.replace(_var, snum(unameToUid(text)));
+        msg.replace(_var, unameToUid(text));
     }
 
     bool find = true;
@@ -712,7 +946,7 @@ QString CodeRunner::processDanmakuVariants(QString msg, const LiveDanmaku& danma
         while ((matchPos = msg.indexOf(re, matchPos, &match)) > -1)
         {
             bool ok = false;
-            QString rpls = replaceDanmakuJson(json, match.captured(1), &ok);
+            QString rpls = replaceDanmakuJson(match.captured(1), json, &ok);
             if (!ok)
             {
                 matchPos++;
@@ -746,17 +980,14 @@ QString CodeRunner::processDanmakuVariants(QString msg, const LiveDanmaku& danma
 
         // 进行数学计算的变量
         if (!us->complexCalc)
-            re = QRegularExpression("%\\[([\\d\\+\\-\\*/% \\(\\)]*?)\\]%"); // 纯数字+运算符+括号
+            re = QRegularExpression(R"(%\[([\d\+\-\*/%^\s\(\)]*?)\]%)"); // 纯数字+运算符+括号
         else
-            re = QRegularExpression("%\\[([^(%(\\{|\\[|>))]*?)\\]%"); // 允许里面带点字母，用来扩展函数
+            re = QRegularExpression(R"(%\[(?!.*%(?:\(|\{|\[|<)).*?\]%)"); // 允许里面带点字母，用来扩展函数
         while (msg.indexOf(re, 0, &match) > -1)
         {
             QString _var = match.captured(0);
             QString text = match.captured(1);
-            if (!us->complexCalc)
-                text = QString::number(ConditionUtil::calcIntExpression(text));
-            else
-                text = QString::number(CalculatorUtil::calculate(text.toStdString().c_str()));
+            text = QString::number(CalculatorUtil::calcIntExpression(text));
             msg.replace(_var, text); // 默认使用变量类型吧
             find = true;
         }
@@ -767,6 +998,54 @@ QString CodeRunner::processDanmakuVariants(QString msg, const LiveDanmaku& danma
         while ((matchPos = msg.indexOf(re, matchPos, &match)) > -1)
         {
             QString rpls = replaceDynamicVariants(match.captured(1), match.captured(2), danmaku);
+            msg.replace(match.captured(0), rpls);
+            matchPos += rpls.length();
+            find = true;
+        }
+
+        // 简单的JS执行
+        re = QRegularExpression("%<(.*?)>%");
+        matchPos = 0;
+        while ((matchPos = msg.indexOf(re, matchPos, &match)) > -1)
+        {
+            QString code = match.captured(1);
+            if (!code.contains(QRegularExpression("\\breturn\\b", QRegularExpression::CaseInsensitiveOption)))
+            {
+                // 如果有分号，则在最后一个;但后面还有代码的地方加return
+                bool addReturn = false;
+                if (code.contains(";"))
+                {
+                    int pos = code.lastIndexOf(";");
+                    if (pos > -1)
+                    {
+                        QString codeL = code.left(pos); // 最后一个分号前面的代码
+                        QString codeR = code.mid(pos + 1).trimmed(); // 最后一个分号后面的代码，要考虑可能是最后一个分号
+                        if (!codeR.isEmpty() && !codeR.startsWith("//")) // 不是空且不是注释
+                        {
+                            code = codeL + "; return " + codeR;
+                            addReturn = true;
+                        }
+                        else // 加在倒数第二个分号后面
+                        {
+                            int pos2 = codeL.lastIndexOf(";");
+                            if (pos2 > -1)
+                            {
+                                code = codeL.left(pos2) + "; return " + codeL.mid(pos2 + 1) + ";" + codeR;
+                                addReturn = true;
+                            }
+                            else // 添加失败，使用默认的
+                            {}
+                        }
+                    }
+                }
+                if (!addReturn)
+                {
+                    // 如果没有分号，则直接在最后加return
+                    code = "return " + code;
+                }
+            }
+            QString rpls = jsEngine->runCode(danmaku, code);
+            qDebug() << "JS执行结果：" << code << "   =>   " << rpls;
             msg.replace(match.captured(0), rpls);
             matchPos += rpls.length();
             find = true;
@@ -798,7 +1077,7 @@ QString CodeRunner::processDanmakuVariants(QString msg, const LiveDanmaku& danma
     return msg;
 }
 
-QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QString &key, bool *ok) const
+QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QString &key, bool *ok)
 {
     *ok = true;
     QRegularExpressionMatch match;
@@ -808,7 +1087,7 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
 
     // 用户昵称
     else if (key == "%uid%")
-        return snum(danmaku.getUid());
+        return danmaku.getUid();
 
     // 本地昵称+简化
     else if (key == "%ai_name%")
@@ -852,7 +1131,7 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
         if (danmaku.is(MSG_WELCOME) || danmaku.is(MSG_WELCOME_GUARD))
             return snum(danmaku.getNumber());
         else
-            return snum(us->danmakuCounts->value("come/"+snum(danmaku.getUid())).toInt());
+            return snum(us->danmakuCounts->value("come/" + danmaku.getUid()).toInt());
     }
 
     // 上次进来
@@ -860,7 +1139,7 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
     {
         return snum(danmaku.is(MSG_WELCOME) || danmaku.is(MSG_WELCOME_GUARD)
                                         ? danmaku.getPrevTimestamp()
-                                        : us->danmakuCounts->value("comeTime/"+snum(danmaku.getUid())).toLongLong());
+                                        : us->danmakuCounts->value("comeTime/" + danmaku.getUid()).toLongLong());
     }
 
     // 和现在的时间差
@@ -868,7 +1147,7 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
     {
         qint64 prevTime = danmaku.is(MSG_WELCOME) || danmaku.is(MSG_WELCOME_GUARD)
                 ? danmaku.getPrevTimestamp()
-                : us->danmakuCounts->value("comeTime/"+snum(danmaku.getUid())).toLongLong();
+                : us->danmakuCounts->value("comeTime/" + danmaku.getUid()).toLongLong();
         return snum(QDateTime::currentSecsSinceEpoch() - prevTime);
     }
 
@@ -953,18 +1232,18 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
 
     // 总共赠送金瓜子
     else if (key == "%total_gold%")
-        return snum(us->danmakuCounts->value("gold/"+snum(danmaku.getUid())).toLongLong());
+        return snum(us->danmakuCounts->value("gold/" + danmaku.getUid()).toLongLong());
 
     // 总共赠送银瓜子
     else if (key == "%total_silver%")
-        return snum(us->danmakuCounts->value("silver/"+snum(danmaku.getUid())).toLongLong());
+        return snum(us->danmakuCounts->value("silver/" + danmaku.getUid()).toLongLong());
 
     // 购买舰长
     else if (key == "%guard_buy%")
         return danmaku.is(MSG_GUARD_BUY) ? "1" : "0";
 
     else if (key == "%guard_buy_count%")
-        return snum(us->danmakuCounts->value("guard/" + snum(danmaku.getUid()), 0).toInt());
+        return snum(us->danmakuCounts->value("guard/" + danmaku.getUid(), 0).toInt());
 
     // 0续费，1第一次上船，2重新上船
     else if (key == "%guard_first%" || key == "%first%")
@@ -978,7 +1257,7 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
         return danmaku.getSpreadDesc();
 
     // 粉丝牌房间
-    else if (key == "%anchor_roomid%" || key == "%medal_roomid%" || key == "%anchor_room_id%" || key == "%medal_room_id%")
+    else if (key == "%anchor_roomid%" || key == "%medal_roomid%" || key == "%anchor_room_id%" || key == "%medal_room_id%" || key == "%medal_id%" || key == "%medal_rid%")
         return danmaku.getAnchorRoomid();
 
     // 粉丝牌名字
@@ -992,14 +1271,19 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
     // 粉丝牌主播
     else if (key == "%medal_up%")
         return danmaku.getMedalUp();
+    // 粉丝牌主播
+    else if (key == "%medal_uid%")
+        return danmaku.getMedalUid();
 
     // 房管
     else if (key == "%admin%")
-        return danmaku.isAdmin() ? "1" : (!ac->upUid.isEmpty() && snum(danmaku.getUid())==ac->upUid ? "1" : "0");
+        return danmaku.isAdmin() ? "1" : (!ac->upUid.isEmpty() && danmaku.getUid()==ac->upUid ? "1" : "0");
 
     // 舰长
     else if (key == "%guard%" || key == "%guard_level%")
         return snum(danmaku.getGuard());
+    else if (key == "%guard_expired%" || key == "%guard_expired_time%")
+        return snum(danmaku.getGuardExpiredTime().toSecsSinceEpoch());
 
     // 舰长名称
     else if (key == "%guard_name%" || key == "%guard_type%")
@@ -1017,12 +1301,12 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
 
     // 房管或舰长
     else if (key == "%admin_or_guard%")
-        return (danmaku.isGuard() || danmaku.isAdmin() || (!ac->upUid.isEmpty() && snum(danmaku.getUid()) == ac->upUid)) ? "1" : "0";
+        return (danmaku.isGuard() || danmaku.isAdmin() || (!ac->upUid.isEmpty() && danmaku.getUid() == ac->upUid)) ? "1" : "0";
 
     // 高能榜
     else if (key == "%online_rank%")
     {
-        qint64 uid = danmaku.getUid();
+        UIDT uid = danmaku.getUid();
         for (int i = 0; i < liveService->onlineGoldRank.size(); i++)
         {
             if (liveService->onlineGoldRank.at(i).getUid() == uid)
@@ -1097,7 +1381,7 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
     else if (key == "%new_attention%")
     {
         bool isInFans = false;
-        qint64 uid = danmaku.getUid();
+        UIDT uid = danmaku.getUid();
         foreach (FanBean fan, liveService->fansList)
             if (fan.mid == uid)
             {
@@ -1178,7 +1462,7 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
         return snum(QDate::currentDate().dayOfWeek());
     else if (key == "%time_day_year%")
         return snum(QDate::currentDate().dayOfYear());
-    else if (key == "%timestamp%")
+    else if (key == "%timestamp%" || key == "%timestamp10%")
         return snum(QDateTime::currentSecsSinceEpoch());
     else if (key == "%timestamp13%")
         return snum(QDateTime::currentMSecsSinceEpoch());
@@ -1225,17 +1509,30 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
 
     // 房间属性
     else if (key == "%living%")
-        return snum(ac->liveStatus);
+        return liveService->isLiving() ? "1" : "0";
+    else if (key == "%live_status%" || key == "%live_status_code%")
+        return snum(liveService->getLiveStatus());
+    else if (key == "%live_status_str%")
+        return liveService->getLiveStatusStr();
     else if (key == "%room_id%")
         return ac->roomId;
+    else if (key == "%room_rid%")
+        return ac->roomRid;
     else if (key == "%room_name%" || key == "%room_title%")
-        return ac->roomTitle;
+        return toSingleLine(ac->roomTitle);
+    else if (key == "%room_desc%")
+        return toSingleLine(ac->roomDescription);
+//        return ac->roomTitle;
     else if (key == "%up_name%" || key == "%up_uname%")
         return ac->upName;
     else if (key == "%up_uid%")
         return ac->upUid;
+    else if (key == "%up_sec_uid%")
+        return ac->upSecUid;
     else if (key == "%my_uid%")
         return ac->cookieUid;
+    else if (key == "%my_sec_uid%")
+        return ac->cookieSecUid;
     else if (key == "%my_uname%")
         return ac->cookieUname;
     else if (key == "%area_id%")
@@ -1250,13 +1547,15 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
         return snum(ac->liveStartTime);
     else if (key == "%live_duration_second%")
         return snum(QDateTime::currentSecsSinceEpoch() - ac->liveStartTime);
+    else if (key == "%from_room_id%")
+        return danmaku.getFromRoomId();
 
     // 是主播
     else if (key == "%is_up%")
-        return danmaku.getUid() == ac->upUid.toLongLong() ? "1" : "0";
+        return danmaku.getUid() == ac->upUid ? "1" : "0";
     // 是机器人
     else if (key == "%is_me%")
-        return danmaku.getUid() == ac->cookieUid.toLongLong() ? "1" : "0";
+        return danmaku.getUid() == ac->cookieUid ? "1" : "0";
     // 戴房间勋章
     else if (key == "%is_room_medal%")
         return danmaku.getAnchorRoomid() == ac->roomId ? "1" : "0";
@@ -1286,7 +1585,7 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
     else if (key == "%in_game_users%")
         return gameUsers[0].contains(danmaku.getUid()) ? "1" : "0";
     else if (key == "%in_game_numbers%")
-        return gameNumberLists[0].contains(danmaku.getUid()) ? "1" : "0";
+        return gameNumberLists[0].contains(danmaku.getNumber()) ? "1" : "0";
     else if (key == "%in_game_texts%")
         return gameTextLists[0].contains(danmaku.getText()) ? "1" : "0";
 
@@ -1312,6 +1611,13 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
     // cookie
     else if (key == "%csrf%")
         return ac->csrf_token;
+    
+    else if (key == "%cookie%")
+    {
+        QString cookie = ac->browserCookie;
+        cookie.replace("\n", ";");
+        return cookie;
+    }
 
     // 工作状态
     else if (key == "%working%")
@@ -1319,7 +1625,7 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
 
     // 用户备注
     else if (key == "%umark%")
-        return us->userMarks->value("base/" + snum(danmaku.getUid()), "").toString();
+        return us->userMarks->value("base/" + danmaku.getUid()).toString();
 
     // 对面直播间也在用神奇弹幕
     else if (key == "%pk_magical_room%")
@@ -1416,14 +1722,36 @@ QString CodeRunner::replaceDanmakuVariants(const LiveDanmaku& danmaku, const QSt
     }
 }
 
-/**
- * 额外数据（JSON）替换
- */
-QString CodeRunner::replaceDanmakuJson(const QJsonObject &json, const QString& key_seq, bool* ok) const
+QString CodeRunner::generateCodeFunctions(const QString &funcName, const QString &args, const LiveDanmaku &danmaku, bool *ok) const
 {
-    QStringList keyTree = key_seq.split(".");
+    if (funcName == "traverseJson")
+    {
+        QRegularExpression re("(.+?)\\s*,\\s*(.*)");
+        QRegularExpressionMatch match;
+        if (args.contains(re, &match))
+        {
+            QString keySeq = match.captured(1).trimmed();
+            QString code = match.captured(2).trimmed();
+            *ok = true;
+            return traverseJsonCode(keySeq, code, danmaku.extraJson);
+        }
+    }
+
+    *ok = false;
+    qWarning() << "无法解析：" << funcName << args;
+    return "";
+}
+
+QJsonValue getJsonValueByKeySeq(QString keySeq, const QJsonObject& json)
+{
+    while (keySeq.startsWith(".")) // 第一个点是自己
+        keySeq = keySeq.mid(1);
+    QStringList keyTree = keySeq.split(".");
     if (keyTree.size() == 0)
+    {
+        qWarning() << "获取JSON值：路径为空";
         return "";
+    }
 
     QJsonValue obj = json;
     while (keyTree.size())
@@ -1445,7 +1773,7 @@ QString CodeRunner::replaceDanmakuJson(const QJsonObject &json, const QString& k
             }
             else
             {
-                qWarning() << "解析JSON的键是空的：" << key_seq;
+                qWarning() << "解析JSON的键是空的：" << keySeq;
                 return "";
             }
         }
@@ -1484,19 +1812,27 @@ QString CodeRunner::replaceDanmakuJson(const QJsonObject &json, const QString& k
                 }
                 else
                 {
-                    qWarning() << "错误的数组索引：" << index << "当前总数量：" << array.size() << "  " << key_seq;
+                    qWarning() << "错误的数组索引：" << index << "当前总数量：" << array.size() << "  " << keySeq;
                     return "";
                 }
             }
         }
         else
         {
-            qWarning() << "未知的JSON类型：" << key_seq;
+            qWarning() << "未知的JSON类型：" << keySeq;
             obj = QJsonValue();
             break;
         }
     }
+    return obj;
+}
 
+/**
+ * 额外数据（JSON）替换
+ */
+QString CodeRunner::replaceDanmakuJson(const QString &keySeq, const QJsonObject &json, bool* ok) const
+{
+    QJsonValue obj = getJsonValueByKeySeq(keySeq, json);
     *ok = true;
 
     if (obj.isNull() || obj.isUndefined())
@@ -1512,9 +1848,45 @@ QString CodeRunner::replaceDanmakuJson(const QJsonObject &json, const QString& k
             return QString::number(qint64(val));
         return QString::number(val);
     }
-    if (obj.isObject() || obj.isArray()) // 不支持转换的类型
-        return "";
+    if (obj.isObject()) // 不支持转换的类型
+        return QJsonDocument(obj.toObject()).toJson(QJsonDocument::Compact);
+    if (obj.isArray())
+        return QJsonDocument(obj.toArray()).toJson(QJsonDocument::Compact);
     return "";
+}
+
+/**
+ * 转换 traverseJson 函数为代码
+ */
+QString CodeRunner::traverseJsonCode(const QString &keySeq, const QString &code, const QJsonObject &json) const
+{
+    // 解析JSON
+    QJsonValue jv = getJsonValueByKeySeq(keySeq, json);
+    if (!jv.isNull())
+        qDebug() << "遍历JSON：" << keySeq << code;
+    QStringList codes;
+    if (jv.isArray())
+    {
+        QJsonArray array = jv.toArray();
+        for (int i = 0; i < array.size(); i++)
+        {
+            QString c = cr->toRunableCode(cr->toMultiLine(code));
+            c.replace("%i%", QString::number(i));
+            codes.append(c);
+        }
+    }
+    else if (jv.isObject())
+    {
+        QJsonObject obj = jv.toObject();
+        foreach (QString key, obj.keys())
+        {
+            QString c = cr->toRunableCode(cr->toMultiLine(code));
+            c.replace("%key%", key);
+            c.replace("%value%", cr->toSingleLine(MyJson(obj.value(key).toObject()).toBa(QJsonDocument::Compact)));
+            codes.append(c);
+        }
+    }
+    return codes.join("\\n");
 }
 
 /**
@@ -1546,23 +1918,36 @@ QString CodeRunner::replaceDynamicVariants(const QString &funcName, const QStrin
     }
     else if (funcName == "unameToUid")
     {
-        qint64 uid = unameToUid(args);
-        return snum(uid);
+        return unameToUid(args);
+    }
+    else if (funcName == "ignoreEmpty")
+    {
+        QString s = args.trimmed();
+        if (s.isEmpty())
+            return "";
+        s = s.replace(" ", "").replace("\t", "");
+        if (s == "()" || s == "（）"
+            || s == "[]" || s == "【】"
+            || s == "{}" || s == "「」"
+            || s == "<>" || s == "《》"
+            || s == "\"\"" || s == "“”")
+            return "";
+        return args;
     }
     else if (funcName == "inGameUsers")
     {
         int ch = 0;
-        qint64 id = 0;
+        UIDT uid = 0;
         if (argList.size() == 1)
-            id = argList.first().toLongLong();
+            uid = argList.first().toLongLong();
         else if (argList.size() >= 2)
         {
             ch = argList.at(0).toInt();
-            id = argList.at(1).toLongLong();
+            uid = argList.at(1).toLongLong();
         }
         if (ch < 0 || ch >= CHANNEL_COUNT)
             ch = 0;
-        return gameUsers[ch].contains(id) ? "1" : "0";
+        return gameUsers[ch].contains(uid) ? "1" : "0";
     }
     else if (funcName == "inGameNumbers")
     {
@@ -2229,7 +2614,202 @@ QString CodeRunner::replaceDynamicVariants(const QString &funcName, const QStrin
         return snum((long long)hWnd);
 #endif
     }
+    else if (funcName == "getDanmuHistory")
+    {
+        // uid, count, type, format, options
+        if (argList.size() < 2)
+            return errorArg("uid, count");
+        QString uid = argList.at(0); // 指定UID或者所有
+        int count = argList.at(1).toInt(); // 最大弹幕数量（仅限本次监听有的）
+        QString format = argList.size() > 2 ? argList.at(2).toLower() : ""; // 每行弹幕的格式
+        QString type = argList.size() > 3 ? argList.at(3).toLower() : ""; // 输出类型
+        QString options = argList.size() > 4 ? argList.at(4).toLower() : ""; // 其他选项
+        
+        if (count == 0)
+            count = 100;
 
+        // 获取历史弹幕
+        QList<LiveDanmaku> danmuList;
+        if (uid.isEmpty() || uid == "0" || uid == "all") // 所有
+        {
+            danmuList = liveService->getAllDanmus(count);
+        }
+        else // 指定 UID
+        {
+            danmuList = liveService->getDanmusByUID(uid, count);
+        }
+        if (danmuList.isEmpty())
+        {
+            qWarning() << "没有找到弹幕" << args;
+            return "";
+        }
+
+        // 其他选项
+        if (options.contains("reverse"))
+        {
+            std::reverse(danmuList.begin(), danmuList.end());
+        }
+        if (options.contains("sort_by_time"))
+        {
+            std::sort(danmuList.begin(), danmuList.end(), [](const LiveDanmaku &a, const LiveDanmaku &b) {
+                return a.getTimeline() < b.getTimeline();
+            });
+        }
+        if (options.contains("sort_by_uid"))
+        {
+            std::sort(danmuList.begin(), danmuList.end(), [](const LiveDanmaku &a, const LiveDanmaku &b) {
+                return a.getUid() < b.getUid();
+            });
+        }
+        // 总字数上限（按每条长度的和）
+        QRegularExpression re("word_count\\s*<\\s*(\\d+)");
+        QRegularExpressionMatch match;
+        int wordCount = 0;
+        if (options.contains(re, &match))
+        {
+            wordCount = match.captured(1).toInt();
+        }
+
+        // 每行弹幕的格式
+        if (format.isEmpty())
+            format = "{time(MM-dd hh:mm)} {uname}:{text}";
+        auto toFormatLine = [=](const LiveDanmaku &danmu) -> QString {
+            QString line = format;
+            QRegularExpression re("\\{time\\((.*?)?\\)\\}\\s*");
+            QRegularExpressionMatch match;
+            if (line.contains(re, &match))
+            {
+                QString time = match.captured(0);
+                QString timeFormat = match.captured(1);
+                line.replace(time, danmu.getTimeline().toString(timeFormat));
+            }
+            line.replace("{uid}", danmu.getUid());
+            line.replace("{uname}", danmaku.getNickname());
+            line.replace("{text}", danmu.getText());
+            return line;
+        };
+
+        // 输出的类型：line, text, json, list, gpt
+        if (type.isEmpty())
+            type = "text";
+        // 生成结果并返回
+        if (type == "line" || type == "text" || type == "list") // 输出为文本
+        {
+            QStringList lines;
+            foreach (LiveDanmaku danmu, danmuList)
+            {
+                lines.append(toFormatLine(danmu));
+            }
+
+            if (wordCount > 0)
+            {
+                int total = 0;
+                for (int i = lines.size() - 1; i >= 0; i--)
+                {
+                    QString line = lines.at(i);
+                    total += line.length();
+                    if (total > wordCount)
+                    {
+                        lines = lines.mid(i);
+                        break;
+                    }
+                }
+            }
+            if (type == "line")
+                return lines.join(";");
+            else if (type == "list")
+                return lines.join("\n");
+            else
+                return lines.join("%n%");
+        }
+        else if (type == "json")
+        {
+            QJsonArray jsonArray;
+            foreach (LiveDanmaku danmu, danmuList)
+            {
+                QJsonObject jsonObj;
+                jsonObj["time"] = danmu.getTimeline().toString();
+                jsonObj["uid"] = danmu.getUid();
+                jsonObj["text"] = danmu.getText();
+                jsonArray.append(jsonObj);
+            }
+            if (wordCount > 0)
+            {
+                int total = 0;
+                QJsonArray newArray;
+                for (int i = jsonArray.size() - 1; i >= 0; i--)
+                {
+                    QJsonObject jsonObj = jsonArray.at(i).toObject();
+                    total += jsonObj["text"].toString().length();
+                    if (total > wordCount)
+                    {
+                        // 从当前位置开始,将剩余元素添加到新数组
+                        for (int j = i; j < jsonArray.size(); j++)
+                        {
+                            newArray.append(jsonArray.at(j));
+                        }
+                        jsonArray = newArray;
+                        break;
+                    }
+                }
+            }
+            return QJsonDocument(jsonArray).toJson(QJsonDocument::Compact);
+        }
+        else if (type == "gpt") // 输出为 GPT 的 JSON 格式
+        {
+            QJsonArray jsonArray;
+            foreach (LiveDanmaku danmu, danmuList)
+            {
+                QJsonObject jsonObj;
+                jsonObj["role"] = "user";
+                jsonObj["content"] = toFormatLine(danmu);
+                jsonArray.append(jsonObj);
+            }
+            if (wordCount > 0)
+            {
+                int total = 0;
+                QJsonArray newArray;
+                for (int i = jsonArray.size() - 1; i >= 0; i--)
+                {
+                    QJsonObject jsonObj = jsonArray.at(i).toObject();
+                    total += jsonObj["content"].toString().length();
+                    if (total > wordCount)
+                    {
+                        // 从当前位置开始,将剩余元素添加到新数组
+                        for (int j = i; j < jsonArray.size(); j++)
+                        {
+                            newArray.append(jsonArray.at(j));
+                        }
+                        jsonArray = newArray;
+                        break;
+                    }
+                }
+            }
+            QString full = QJsonDocument(jsonArray).toJson(QJsonDocument::Compact);
+            full = full.mid(1, full.length() - 2); // 去掉前后的[]，因为要放在gpt的参数里面
+            return full;
+        }
+        else
+        {
+            liveService->showError(funcName, "无法识别的输出类型：" + type);
+        }
+    }
+    else if (funcName.contains("toWbiParam"))
+    {
+        if (argList.size() < 1)
+            return errorArg("urlParams");
+        BiliLiveService* biliLiveService = static_cast<BiliLiveService*>(liveService);
+        if (!biliLiveService)
+        {
+            showError("WBI签名", "只有B站需要使用");
+            return "";
+        }
+        QString params = argList.at(0);
+        QString wbiParams = biliLiveService->toWbiParam(params);
+
+        qInfo() << "WBI签名" << params << wbiParams;
+        return wbiParams;
+    }
 
     return "";
 }
@@ -2286,7 +2866,7 @@ bool CodeRunner::isConditionTrue(T a, T b, QString op) const
 
 bool CodeRunner::isFilterRejected(QString filterName, const LiveDanmaku &danmaku)
 {
-    if (!enableFilter)
+    if (!enableFilter || rt->justStart)
         return false;
 
     // 查找所有事件，查看有没有对应的过滤器
@@ -2300,10 +2880,13 @@ bool CodeRunner::isFilterRejected(QString filterName, const LiveDanmaku &danmaku
         auto eventWidget = static_cast<EventWidget*>(widget);
         if (eventWidget->isEnabled() && eventWidget->title() == filterName)
         {
-            QString filterText = eventWidget->body();
+            QString filterCode = eventWidget->body();
             // 判断事件
-            if (!processFilter(filterText, danmaku))
+            if (!processFilter(filterCode, danmaku))
+            {
+                qDebug() << "已过滤，代码：" << filterCode.left(20) + "...";
                 reject = true;
+            }
         }
     }
 
@@ -2313,23 +2896,29 @@ bool CodeRunner::isFilterRejected(QString filterName, const LiveDanmaku &danmaku
 /**
  * 判断是否通过（没有reject）
  */
-bool CodeRunner::processFilter(QString filterText, const LiveDanmaku &danmaku)
+bool CodeRunner::processFilter(QString filterCode, const LiveDanmaku &danmaku)
 {
-    if (filterText.isEmpty())
-        return false;
+    if (filterCode.isEmpty())
+        return true;
+
+    bool ok = false;
+    filterCode = replaceCodeLanguage(filterCode, danmaku, &ok);
+    if (ok)
+    {
+        return processFilter(filterCode, danmaku);
+    }
 
     // 获取符合的所有结果
-    QStringList msgs = getEditConditionStringList(filterText, danmaku);
+    QStringList msgs = getEditConditionStringList(filterCode, danmaku);
     if (!msgs.size())
         return true;
 
     // 如果有多个，随机取一个
     int r = qrand() % msgs.size();
     QString s = msgs.at(r);
-
     bool reject = s.contains(QRegularExpression(">\\s*reject\\s*(\\s*)"));
     if (reject)
-        qInfo() << "已过滤:" << filterText;
+        qInfo() << "已过滤:" << filterCode;
 
     if (reject && !s.contains("\\n")) // 拒绝，且不需要其他操作，直接返回
     {
@@ -2341,6 +2930,7 @@ bool CodeRunner::processFilter(QString filterText, const LiveDanmaku &danmaku)
         sendAutoMsg(s, danmaku);
     }
 
+    qDebug() << "过滤器结果：阻止=" << reject;
     return !reject;
 }
 
@@ -2634,7 +3224,7 @@ void CodeRunner::triggerCmdEvent(const QString &cmd, const LiveDanmaku &danmaku,
     emit signalTriggerCmdEvent(cmd, danmaku, debug);
 }
 
-void CodeRunner::localNotify(const QString &text, qint64 uid)
+void CodeRunner::localNotify(const QString &text, UIDT uid)
 {
     emit signalLocalNotify(text, uid);
 }
@@ -2691,13 +3281,20 @@ QString CodeRunner::toMultiLine(QString text) const
 {
     return text.replace("%n%", "\n").replace("%m%", "\\n").replace("\\\"", "\"");
 }
+/**
+ * postJson中  数据来源不管怎么回事 但是json中的转义 不能直接把%n%转义为\n 得转义为\\n
+ */
+QString CodeRunner::toMultiLineForJson(QString text) const
+{
+    return text.replace("%n%", "\\n").replace("%m%", "\\n").replace("\\\"", "\"");
+}
 
 QString CodeRunner::toRunableCode(QString text) const
 {
     return text.replace("\\%", "%");
 }
 
-qint64 CodeRunner::unameToUid(QString text)
+UIDT CodeRunner::unameToUid(QString text)
 {
     // 查找弹幕和送礼
     for (int i = liveService->roomDanmakus.size()-1; i >= 0; i--)
@@ -2716,13 +3313,13 @@ qint64 CodeRunner::unameToUid(QString text)
     }
 
     // 查找专属昵称
-    QSet<qint64> hadMatches;
+    QSet<UIDT> hadMatches;
     for (int i = liveService->roomDanmakus.size()-1; i >= 0; i--)
     {
         const LiveDanmaku danmaku = liveService->roomDanmakus.at(i);
         if (!danmaku.is(MSG_DANMAKU) && !danmaku.is(MSG_GIFT))
             continue;
-        qint64 uid = danmaku.getUid();
+        UIDT uid = danmaku.getUid();
         if (hadMatches.contains(uid) || !us->localNicknames.contains(uid))
             continue;
         QString nick = us->localNicknames.value(uid);
@@ -2737,10 +3334,10 @@ qint64 CodeRunner::unameToUid(QString text)
 
     localNotify("[未找到用户：" + text + "]");
     triggerCmdEvent("NOT_FIND_USER_BY_UNAME", LiveDanmaku(text), true);
-    return 0;
+    return "";
 }
 
-QString CodeRunner::uidToName(qint64 uid)
+QString CodeRunner::uidToName(UIDT uid)
 {
     // 查找弹幕和送礼
     for (int i = liveService->roomDanmakus.size()-1; i >= 0; i--)
@@ -2758,7 +3355,7 @@ QString CodeRunner::uidToName(qint64 uid)
     }
 
     // 查找专属昵称
-    QSet<qint64> hadMatches;
+    QSet<UIDT> hadMatches;
     for (int i = liveService->roomDanmakus.size()-1; i >= 0; i--)
     {
         const LiveDanmaku danmaku = liveService->roomDanmakus.at(i);
@@ -2773,9 +3370,9 @@ QString CodeRunner::uidToName(qint64 uid)
         hadMatches.insert(uid);
     }
 
-    localNotify("[未找到用户：" + snum(uid) + "]");
-    triggerCmdEvent("NOT_FIND_USER_BY_UID", LiveDanmaku(snum(uid)), true);
-    return snum(uid);
+    localNotify("[未找到用户：" + uid + "]");
+    triggerCmdEvent("NOT_FIND_USER_BY_UID", LiveDanmaku(uid), true);
+    return uid;
 }
 
 /**

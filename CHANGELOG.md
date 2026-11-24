@@ -1,4 +1,201 @@
-### v4.10.7 [修复接口](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v4.10.7)
+### v6.1.0 [一键开播、下播](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v6.1.0)
+
+- 新增Web版一键开播、下播
+- 新增开播相关命令：开播：`>startLive()`、下播：`>stopLive()`、设置分区：`>setLiveArea(areaId)`
+- 新增可连接至任意WebSocket类型
+- 新增向直播WebSocket发送消息的命令：`>sendToLiveSocket(data)`
+- 新增获取用户Cookie的变量：`%cookie%`
+
+
+
+
+
+### v6.0.0 [多平台弹幕、AI分析、语法增强、实时档案](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v6.0.0)
+
+> 使用“功能型AI”的用户请注意：由于更改了AI分析的逻辑，请点击该项设置中“还原/升级”的按钮
+
+- 新增抖音发送弹幕（测试）
+- 新增弹幕姬显示粉丝的历史弹幕、档案
+- 新增实时显示最新一条弹幕的用户档案
+- 新增简单计算的JS语法，示例：`%<var a = 10, b = 12; a + b>%`
+- 新增新的语言框架：QML，可自定义显示界面
+- 新增默认弹幕JS的WebSocket支持断开自动重连
+- 新增设备更换检测，自动清除Cookie以保障安全
+- 新增不同直播平台的房间号与Cookie使用不同的配置
+- 重构“功能型AI”为“AI分析”，支持多条弹幕批量解析，在弹幕数量超多时节省大量资源
+- 优化AI回复，在不开启弹幕姬的情况下也可以回复
+- 优化以 "%[xxx]%" 包裹的计算器功能，支持嵌套括号
+- 优化本地模式下，发送至其他直播间的弹幕也将不发送（之前版本仅限自己直播间）
+- 优化语法糖字符串运算符，示例：重复2次 `{字符串值} * 2`
+- 优化切换平台时禁用一些无效功能的UI控件
+- 优化弹幕姬修改标签样式使用多行输入框
+- 优化弹幕姬默认文字与背景色，并且使用窗口模式
+- 修复启动时关闭界面导致多线程异常崩溃的问题
+
+
+
+
+
+### v5.5.0 [抖音弹幕、代码可视化编辑器](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v5.5.0)
+
+- 新增支持直播平台：抖音，已实现部分功能。
+  - 包括：获取弹幕、进房、送礼、关注、点赞、Cookie登录、人数统计等信息
+  - 不包括：发送弹幕、录播、PK、礼物连击等功能
+- 新增代码GUI编辑器，支持可视化操作逻辑
+- 新增代码定义的列表，包含变量、函数等，双击插入编辑器
+- 新增直播状态码变量 `%live_status_code%` 和 `%live_status_str%`，可用于判断直播间状态
+- 新增一键还原默认功能型AI配置的按钮，适用于随版本手动升级
+- 新增浏览器登录功能（仅限特殊的带浏览器版）
+- 优化功能型AI，添加直播建议、直播内容识别、观众情绪等功能
+- 优化自动获取弹幕长度上限的接口（会触发进入直播间）
+- 调整所有用户ID结构都调整为字符串类型，可能会引发新的兼容问题
+
+
+
+
+
+### v5.4.1 [修复用户欢迎失效](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v5.4.1)
+
+- 修复部分直播间用户欢迎失效
+- 新增弹幕姬支持用户进入的舰长等级显示
+- 新增欢迎消息支持粉丝牌对应的主播ID：`%medal_uid%`
+
+
+
+
+
+### v5.4 [Cron 定时事件、过滤器支持在线AI、Python虚拟环境](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v5.4)
+
+- 新增粉丝档案的观众消费能力分析
+- 新增 Cron 定时事件：以`TIME:`开头
+- 新增网络代理功能，支持HTTP合SOCKS5
+- 新增过滤器支持多个编程语言和代码文件
+- 新增手动设置Python虚拟环境
+- 新增JS语法支持网络连接，可使用在线数据
+- 新增过滤器事件支持使用JS语法的AI判断
+- 新增多个场景下自动设置BuVID字段
+- 优化启动10秒内不进行自动化操作（包括定时、回复、事件、过滤器等）
+- 优化部分控件的交互
+- 修复过滤器在空代码时返回值错误的问题
+- 修复粉丝档案没有选中时导致崩溃的问题
+- 修复子账号导致进入主页链接错误的问题
+
+
+
+
+
+### v5.3.0 [功能型AI](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v5.3.0)
+
+- 新增代码支持以本地文件的形式加载，可使用其他IDE来编写与管理
+- 新增代码块可通过 `---` 拆分为多段代码执行
+- 新增代码规则：代码展开
+- 新增代码展开的函数 `traverseJson`，用来遍历JSON数组
+- 新增函数 `ignoreEmpty`，忽略括号包裹的空内容
+- 新增功能型AI的知识点显示
+- 新增长连接断开重连成功的提示
+- 新增读写程序的配置接口
+- 优化“功能型AI”的类型，完善细节
+- 优化开关“功能型AI”时清空 AI 记录
+- 优化清理过多的弹幕记录，以节省内存
+- 优化多次重新加载配置的行为
+- 优化JSON路径的解析，不存在时返回空字符串
+- 修复最新版本托盘退出显示中断更新的问题
+- 修复“功能型AI”偶尔无法解析结果的问题
+- 修复语音朗读在重启后会导致崩溃的问题
+- 修复 Mac 上微软语音无法播放的问题
+- 修复 PK 对面直播间信息的鉴权问题
+
+
+
+
+
+### v5.2.0 [子账号、修复bug](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v5.2.0)
+
+- 新增子账号功能（捐赠版），可使用不同的账号来发送弹幕
+- 新增保持账号登录功能（捐赠版，仅限扫码登录）
+- 新增自定义 UserAgent
+- 优化 `sendRoomMsg()` 等命令也支持子账号
+- 修复无法获取弹幕信息的问题
+- 修复部分 UID 长的账号会一直 AI 回复自己的问题
+- 修复部分网络连接UA的问题
+- 修复 Mac 上恰饭窗口偶尔崩溃的问题
+- 修复人气值为 1 的问题
+以下感谢用户 @TiAmoPlus 的 PR：
+- 优化 PostJson 函数中换行的处理
+- 优化礼物 ID 列表接口，适配直播间礼物列表
+- 修复直播间标题多行时的情况
+- 修复 PK 时无法获取到最佳助攻的问题
+- 修复默认代码中 PK_FINAL 的遗留问题
+- 修复 README 中下播事件写作 PREPARE 的问题
+
+
+
+
+
+
+### v5.1.0 [代码支持多种编程语言](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v5.1.0)
+
+- 新增代码支持 JavaScript、Python、Lua 三种编程语言，并且可参与读写配置数据
+- 新增模型名称可以自由输入
+- 新增 GPT 输入消息 JSON 中添加键值对 UID，以便大模型识别
+- 优化远程开关粉丝档案时忽略未改变的情况
+- 优化代码编辑器的 tab 宽度为4个空格宽度
+- 优化未登录时 -352 报错显示需要登录的提示
+- 修复模型自定义 API 无法保存的问题
+- 修复初次上船 FIRST_GUARD 反过来的问题
+- 修复代码页切换无法保存的问题
+
+
+
+
+
+### v5.0.0 [粉丝档案、数据库优化](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v5.0.0)
+
+- 新增粉丝档案功能，解析每一位观众的行为特征
+- 移动数据库至数据中心页面
+- 新增数据库查询可直接问AI
+- 新增数据库可视化列表的变量输入
+- 新增SQL查询支持注释
+- 新增SQL查询支持中文字符集
+- 新增数据库路径可自定义：setting.ini中 `[custom]` 下添加 `databasePath=xxxx(需包含文件名)`
+- 新增全屏弹幕的显示器选择
+- 新增发送常规的@符号，使用"\@"代替
+- 新增远程控制命令“开启粉丝档案/关闭粉丝档案”
+    
+    > 结合定时任务，可以实现DeepSeek错峰使用
+- 修复SQL浏览器无法执行多行的问题
+    
+    > 因为该文本格式中，换行符使用的是特殊的 Unicode 字符 U+2029 (Paragraph Separator)，而不是常规的 \n 字符
+- 修复弹幕在失败重发时丢失@用户的问题
+
+
+
+
+
+### v4.10.9 [发送表情命令](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v4.10.9)
+
+- 新增AI“回复自己”的开关，避免死循环（默认关闭，不会回复）
+- 新增发送表情命令：`>sendEmoji(emojiID)`、`>sendRoomEmoji(roomID, emojiID)`
+- 新增自定义变量支持正则表达式，以此衍生的自定义函数功能
+> 示例：自定义发送表情的函数，自定义变量添加：
+> ```
+> >发送表情\((.+?)\) = >postData(https://api.live.bilibili.com/msg/send, bubble=0&msg=\1&color=16777215&mode=1&dm_type=1&fontsize=25&rnd=1657851774&roomid=%room_id%&csrf=%csrf%&csrf_token=%csrf%)
+> ```
+> 之后就可以在代码框中使用 `>发送表情(official_147)` 这样的格式来快速写发送表情。
+
+
+
+
+
+### v4.10.8 [支持DeepSeek](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v4.10.8)
+
+- 新增DeepSeek接口（感谢github/hot1989hot）
+
+
+
+
+
+### v4.10.7 [修复接口、@用户](https://github.com/iwxyi/Bilibili-MagicalDanmaku/releases/tag/v4.10.7)
 
 - 新增支持@用户的弹幕
 - 新增弹幕姬的右键菜单直接@用户

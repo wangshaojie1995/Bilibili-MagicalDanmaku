@@ -2,7 +2,8 @@
 #include <QApplication>
 // #include <QBreakpadHandler.h>
 #include "dlog.h"
-
+#include "signaltransfer.h"
+#include "debounce.h"
 #ifdef Q_OS_WIN32
 // #include <dbghelp.h>
 /**
@@ -38,6 +39,8 @@ UserSettings* us;
 AccountInfo* ac;
 PlatformInfo* pl;
 CodeRunner* cr;
+SignalTransfer* st;
+Debounce* debounce;
 
 int main(int argc, char *argv[])
 {
@@ -60,15 +63,19 @@ int main(int argc, char *argv[])
     // SetUnhandledExceptionFilter((LPTOP_LEVEL_EXCEPTION_FILTER)ApplicationCrashHandler); // 注册异常捕获程序
     // QBreakpadInstance.setDumpPath(QLatin1String("crashes"));
 
+#ifdef Q_OS_WIN32
     QFont font(a.font());
     font.setFamily("微软雅黑");
     a.setFont(font);
+#endif
 
     rt = new RuntimeInfo;
     us = nullptr;
+    st = new SignalTransfer;
     ac = new AccountInfo;
     pl = new PlatformInfo;
     cr = new CodeRunner;
+    debounce = new Debounce;
 
     MainWindow w;
     if (w.getSettings()->value("debug/logFile", false).toBool())

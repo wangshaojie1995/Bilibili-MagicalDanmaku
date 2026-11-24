@@ -8,6 +8,7 @@
 #include <QDataStream>
 #include <QTableWidget>
 #include <QSqlQuery>
+#include <QNetworkProxy>
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "videolyricscreator.h"
@@ -35,6 +36,14 @@
 #include "bili_api_util.h"
 #include "pixmaputil.h"
 #include "emailutil.h"
+#include "douyin_liveservice.h"
+#include "webview_login/WebLoginUtil.h"
+#include "codeguieditor.h"
+#include "noticemanagerwindow.h"
+#include "debounce.h"
+#include "CPU_ID/cpu_id_util.h"
+#include "keyu_liveservice.h"
+#include "anywebsocketservice.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent),
@@ -46,6 +55,8 @@ MainWindow::MainWindow(QWidget *parent)
     resize(800, 600);
     rt->mainwindow = this;
     cr->setMainUI(ui);
+
+    qsrand(QTime::currentTime().msec());
 
     initView();
     initStyle();
@@ -131,9 +142,12 @@ void MainWindow::initView()
                   ui->thankPageButton,
                   ui->musicPageButton,
                   ui->extensionPageButton,
+                  ui->dataPageButton,
                   ui->preferencePageButton,
-                  ui->forumButton
+                  ui->forumButton,
+                  ui->platformButton
                 };
+    const int notPageCount = 2;
     for (int i = 0; i < sideButtonList.size(); i++)
     {
         auto button = sideButtonList.at(i);
@@ -145,7 +159,7 @@ void MainWindow::initView()
         button->setAttribute(Qt::WA_LayoutUsesWidgetRect);
 //        button->setChokingProp(0.08);
 
-        if (i == sideButtonList.size() - 1) // 最后面的不是切换页面，不设置
+        if (i == sideButtonList.size() - notPageCount) // 最后面的几个不是切换页面，不设置
             continue;
 
         connect(button, &InteractiveButtonBase::clicked, this, [=]{
@@ -209,7 +223,7 @@ void MainWindow::initView()
     roomSelectorBtn->setSquareSize();
     roomSelectorBtn->setRadius(rt->fluentRadius);
     roomSelectorBtn->setFocusPolicy(Qt::FocusPolicy::ClickFocus);
-    ui->tagsButtonGroup->setSelecteable(false);
+    ui->tagsButtonGroup->setSelectable(false);
     ui->robotInfoWidget->setMinimumWidth(upHeaderSize * 2);
 
     // 避免压缩
@@ -364,6 +378,24 @@ void MainWindow::initView()
     ui->thankTopTabGroup->setFixedHeight(ui->thankTopTabGroup->sizeHint().height());
     ui->thankTopTabGroup->setStyleSheet("#thankTopTabGroup { background: white; border-radius: " + snum(ui->thankTopTabGroup->height() / 2) + "px; }");
 
+    // 数据中心页面
+    dataCenterTabButtons = {
+        ui->fansArchivesTabButton,
+        ui->databaseTabButton
+    };
+    foreach (auto btn, dataCenterTabButtons)
+    {
+        btn->setAutoTextColor(false);
+        btn->setPaddings(18, 18, 0, 0);
+    }
+    ui->dataCenterTopTabGroup->layout()->activate();
+    ui->dataCenterTopTabGroup->setFixedHeight(ui->dataCenterTopTabGroup->sizeHint().height());
+    ui->dataCenterTopTabGroup->setStyleSheet("#dataCenterTopTabGroup { background: white; border-radius: " + snum(ui->dataCenterTopTabGroup->height() / 2) + "px; }");
+
+    connect(ui->databaseWidget, &DBBrowser::signalProcessVariant, this, [=](QString& code) {
+        code = cr->processDanmakuVariants(code, LiveDanmaku());
+    });
+
     customVarsButton = new InteractiveButtonBase(QIcon(":/icons/settings"), ui->thankPage);
     customVarsButton->setRadius(rt->fluentRadius);
     customVarsButton->setSquareSize();
@@ -469,6 +501,10 @@ void MainWindow::initView()
         menu->exec();
     });
 
+    // 默认的on_tabWidget_tabBarClicked()莫名失效，只能手动连接
+    connect(ui->tabWidget, &QTabWidget::tabBarClicked,
+                    this, &MainWindow::onExtensionTabWidgetBarClicked);
+
     appendListItemButton = new AppendButton(ui->tabWidget);
     appendListItemButton->setFixedSize(rt->widgetSizeL, rt->widgetSizeL);
     appendListItemButton->setRadius(rt->widgetSizeL);
@@ -486,6 +522,31 @@ void MainWindow::initView()
 
     ui->vipExtensionButton->setBgColor(Qt::white);
     ui->vipExtensionButton->setRadius(rt->fluentRadius);
+    ui->vipDatabaseButton->setBgColor(Qt::white);
+    ui->vipDatabaseButton->setRadius(rt->fluentRadius);
+
+    // 子账号系统
+    ui->subAccountTableWidget->verticalHeader()->hide();
+    ui->addSubAccountButton->setLeaveAfterClick(true);
+    QList<InteractiveButtonBase*> subAccountButtons = {
+        ui->addSubAccountButton,
+        ui->refreshSubAccountButton,
+        ui->subAccountDescButton
+    };
+    foreach (auto btn, subAccountButtons)
+    {
+        btn->setAttribute(Qt::WA_LayoutUsesWidgetRect);
+        btn->setBorderColor(Qt::lightGray);
+        btn->setSquareSize();
+        btn->setRadius(0);
+        btn->setFixedForePos();
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setBgColor(Qt::white);
+    }
+    ui->horizontalLayout_8->activate();
+    
+    // 数据中心页面
+
 
     // 网页
     ui->refreshExtensionListButton->setSquareSize();
@@ -541,6 +602,11 @@ void MainWindow::initView()
             ui->liveStatusButton->setText(timeStr);
         }
     });
+
+    // 设置为默认界面
+    QTimer::singleShot(0, [=]{
+        setRoomCover(QPixmap(":/bg/bg"));
+    });
 }
 
 void MainWindow::initStyle()
@@ -567,29 +633,75 @@ void MainWindow::initStyle()
 void MainWindow::initObject()
 {
     rt->firstOpen = !QFileInfo(rt->dataPath + "settings.ini").exists();
+
     if (!rt->firstOpen)
     {
         // 备份当前配置：settings和heaps
         ensureDirExist(rt->dataPath + "backup");
         QString ts = QDateTime::currentDateTime().toString("yyyy_MM_dd_hh_mm");
         copyFile(rt->dataPath + "settings.ini", rt->dataPath + "/backup/settings_" + ts + ".ini");
+    
         copyFile(rt->dataPath + "heaps.ini", rt->dataPath + "/backup/heaps_" + ts + ".ini");
+
+        // 绿色版解压覆盖可能会覆盖 settings.ini，添加还原提示，减少误操作
+    
+        {
+
+        }
     }
 
     us = new UserSettings(rt->dataPath + "settings.ini");
-    cr->heaps = new MySettings(rt->dataPath + "heaps.ini", QSettings::Format::IniFormat);
+
+    rt->livePlatform = (LivePlatform)(us->value("global/live_platform", 101).toInt());
+    // 设备
+    {
+        rt->CPU_ID = CPUIDUtil::get_cpuId();
+        qInfo() << "CPU_ID:" << rt->CPU_ID;
+        QString prevStID = us->value("platform/cpu_id").toString();
+        if (!rt->CPU_ID.isEmpty())
+        {
+            if (!prevStID.isEmpty() && prevStID != rt->CPU_ID) // 使用这个字段在切换设备时保留Cookie，给别人调试或者调试好给别人的情况下
+            {
+                qInfo() << "检测到您已更换设备" << prevStID << "->" << rt->CPU_ID;
+                if (us->b("debug/keep_cookie", false))
+                {
+                    QTimer::singleShot(2000, this, [=]{
+                        showNotify("安全检测", "检测到您已更换设备");
+                    });
+                }
+                else // 清除Cookie
+                {
+                    if (!us->s("danmaku/browserCookie" + rt->getPlatformSuffix()).isEmpty())
+                    {
+                        us->set("danmaku/browserCookie" + rt->getPlatformSuffix(), "");
+                        QTimer::singleShot(2000, this, [=]{
+                            showNotify("安全检测", "已清除之前设备的Cookie");
+                        });
+                    }
+                }
+            }
+        }
+        else
+        {
+            qWarning() << "无法获取到CPU_ID";
+        }
+        us->setValue("platform/cpu_id", rt->CPU_ID);
+    }
+
+    cr->setHeaps(new MySettings(rt->dataPath + "heaps.ini", QSettings::Format::IniFormat));
     cr->extSettings = new MySettings(rt->dataPath + "ext_settings.ini", QSettings::Format::IniFormat);
+
 
     // 版本
     rt->appVersion = GetFileVertion(QApplication::applicationFilePath()).trimmed();
     if (rt->appVersion.startsWith("v") || rt->appVersion.startsWith("V"))
             rt->appVersion.replace(0, 1, "");
     QString oldValue = us->value("runtime/appVersion").toString();
-    if (compareVersion(rt->appVersion, oldValue) != 0)
+    if (compareVersion(rt->appVersion, oldValue) > 0)
     {
         upgradeVersionToLastest(oldValue);
         us->setValue("runtime/appVersion", rt->appVersion);
-        QTimer::singleShot(1000, [=]{
+        QTimer::singleShot(1000, this, [=]{
             QString ch = QApplication::applicationDirPath() + "/CHANGELOG.md";
             if (!oldValue.isEmpty()
                     && ui->showChangelogCheck->isChecked()
@@ -599,7 +711,7 @@ void MainWindow::initObject()
             }
         });
     }
-    ui->appNameLabel->setText("神奇弹幕 v" + rt->appVersion);
+    ui->appNameLabel->setText("神奇弹幕 v" + rt->appVersion + (LOCAL_MODE ? "(本地调试模式)" : ""));
     this->setWindowTitle(ui->appNameLabel->text());
 
     // 编译时间
@@ -660,8 +772,9 @@ void MainWindow::initObject()
     permissionText = us->value("mainwindow/permissionText", rt->asPlugin ? "Lite版" : permissionText).toString();
 
     // 10秒内不进行自动化操作
-    QTimer::singleShot(3000, [=]{
+    QTimer::singleShot(10000, this, [=]{
         rt->justStart = false;
+        qInfo() << "启动等待时长结束，开始自动化操作";
     });
 
     // 读取拼音
@@ -765,14 +878,47 @@ void MainWindow::initPath()
 
 void MainWindow::initLiveService()
 {
-    liveService = new BiliLiveService(this);
-    // liveService = new BiliLiveOpenService(this);
+    // 初始化平台
+    initLivePlatform();
+
+    qInfo() << "初始化直播服务，平台：" << rt->livePlatform;
+    switch (rt->livePlatform)
+    {
+    case Bilibili:
+        liveService = new BiliLiveService(this);
+        ui->platformButton->setIcon(QIcon(":/icons/platform/bilibili"));
+        pl->coinToRMB = 1000; // 硬币比例
+        break;
+    case Douyin:
+        liveService = new DouyinLiveService(this);
+        ui->platformButton->setIcon(QIcon(":/icons/platform/douyin"));
+        pl->coinToRMB = 10; // 抖币比例
+        break;
+    case Keyu:
+        liveService = new KeyuLiveService(this);
+        ui->platformButton->setIcon(QIcon(":/icons/platform/keyu"));
+        pl->coinToRMB = 10;
+        break;
+    case AnyWS:
+        liveService = new AnyWebSocketService(this);
+        ui->platformButton->setIcon(QIcon(":/icons/platform/websocket"));
+        pl->coinToRMB = 10;
+        break;
+    default:
+        QMessageBox::critical(this, "直播服务", "当前平台暂不支持，使用默认的【哔哩哔哩】");
+        Q_ASSERT(false);
+        break;
+    }
+
     cr->setLiveService(liveService);
     liveService->setSqlService(&sqlService);
 
+    /// 配置
+    liveService->setUserAgent(us->value("debug/userAgent", "").toString());
+    
     /// 账号操作
-    connect(liveService, &LiveRoomService::signalRobotAccountChanged, this, [=]{
-        ui->robotNameButton->setText(ac->cookieUname);
+    connect(liveService, &LiveServiceBase::signalRobotAccountChanged, this, [=]{
+        ui->robotNameButton->setText(ac->cookieUname.isEmpty() ? "未登录" : ac->cookieUname);
         ui->robotNameButton->adjustMinimumSize();
         ui->robotInfoWidget->setMinimumWidth(ui->robotNameButton->width());
 #ifdef ZUOQI_ENTRANCE
@@ -785,64 +931,102 @@ void MainWindow::initLiveService()
         updatePermission();
         getPositiveVote();
     });
-    connect(liveService, &LiveRoomService::signalRobotHeadChanged, this, [=](const QPixmap& p) {
+    connect(liveService, &LiveServiceBase::signalRobotHeadChanged, this, [=](const QPixmap& p) {
         QPixmap f = p.scaled(ui->robotHeaderLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
         ui->robotHeaderLabel->setPixmap(f);
     });
 
     /// 流程操作
-    connect(liveService, &LiveRoomService::signalStartConnectRoom, this, [=]{
+    connect(liveService, &LiveServiceBase::signalStartConnectRoom, this, [=]{
         startConnectRoom();
     });
 
+    connect(liveService, &LiveServiceBase::signalAutoAddCookie, this, [=](QList<QNetworkCookie> cookies) {
+        QString prevCookie = ac->browserCookie;
+        QString ck = ac->browserCookie;
+        if (!ck.isEmpty() && !ck.trimmed().endsWith(";"))
+            ck += "; ";
+        for (const QNetworkCookie& cookie : cookies)
+        {
+            QString name = cookie.name();
+            QString value = cookie.value();
+            if (name.isEmpty() || value.isEmpty())
+                continue ;
+            if (ck.contains(name))
+            {
+                qInfo() << "Replace Cookie:" << name << "=" << value;
+                ck.replace(QRegularExpression("(^|;| )" + name + "=.*?;"), "\\1" + name + "=" + value + ";");
+            }
+            else
+            {
+                qInfo() << "Add Cookie:" << name << "=" << value;
+                ck += name + "=" + value + ";";
+            }
+        }
+        qDebug() << "自动添加Cookie：" << ck.left(200) + "...";
+        if (prevCookie.isEmpty()) // 第一次自动添加Cookie
+            autoSetCookie(ck);
+    });
+
+    connect(liveService, &LiveServiceBase::signalNewAccountSetted, this, [=]() {
+        liveService->startConnect();
+    });
+
     /// 变量到UI
-    connect(liveService, &LiveRoomService::signalConnectionStateTextChanged, this, [=](const QString& text) {
+    connect(liveService, &LiveServiceBase::signalConnectionStateTextChanged, this, [=](const QString& text) {
         ui->connectStateLabel->setText(text);
     });
-    connect(liveService, &LiveRoomService::signalStatusChanged, this, [=](const QString& text) {
+    connect(liveService, &LiveServiceBase::signalStatusChanged, this, [=](const QString& text) {
         statusLabel->setText(text);
     });
-    connect(liveService, &LiveRoomService::signalLiveStatusChanged, this, [=](const QString& text) {
+    connect(liveService, &LiveServiceBase::signalLiveStatusChanged, this, [=](const QString& text) {
         ui->liveStatusButton->setText(text);
     });
 
     // 连接之后
-    connect(liveService, &LiveRoomService::signalRoomInfoChanged, this, &MainWindow::slotRoomInfoChanged);
+    connect(liveService, &LiveServiceBase::signalRoomInfoChanged, this, &MainWindow::slotRoomInfoChanged);
 
-    connect(liveService, &LiveRoomService::signalImUpChanged, this, [=](bool isUp){
+    connect(liveService, &LiveServiceBase::signalImUpChanged, this, [=](bool isUp){
         if (isUp)
         {
             ui->actionJoin_Battle->setEnabled(true);
         }
     });
 
-    connect(liveService, &LiveRoomService::signalRoomCoverChanged, this, [=](const QPixmap& pixmap) {
+    connect(liveService, &LiveServiceBase::signalRoomCoverChanged, this, [=](const QPixmap& pixmap) {
         setRoomCover(pixmap);
     });
 
-    connect(liveService, &LiveRoomService::signalRoomTitleChanged, this, [=](const QString& title) {
+    connect(liveService, &LiveServiceBase::signalRoomTitleChanged, this, [=](const QString& title) {
         ui->roomNameLabel->setText(title);
+
+        this->setWindowTitle(title + " - " + ui->appNameLabel->text());
     });
 
-    connect(liveService, &LiveRoomService::signalRoomDescriptionChanged, this, [=](const QString& content) {
+    connect(liveService, &LiveServiceBase::signalRoomDescriptionChanged, this, [=](const QString& content) {
         ui->roomDescriptionBrowser->setPlainText(content);
     });
 
-    connect(liveService, &LiveRoomService::signalRoomTagsChanged, this, [=](const QStringList& tags) {
+    connect(liveService, &LiveServiceBase::signalRoomTagsChanged, this, [=](const QStringList& tags) {
         ui->tagsButtonGroup->initStringList(tags);
     });
 
-    connect(liveService, &LiveRoomService::signalUpFaceChanged, this, [=](const QPixmap& pixmap) {
+    connect(liveService, &LiveServiceBase::signalUpFaceChanged, this, [=](const QPixmap& pixmap) {
         QPixmap circlePixmap = PixmapUtil::toCirclePixmap(pixmap); // 圆图
-
         // 设置到窗口图标
         QPixmap face = liveService->isLiving() ? PixmapUtil::toLivingPixmap(circlePixmap) : circlePixmap;
+        if (face.isNull() && !pixmap.isNull())
+        {
+            qWarning() << "转换为圆形头像失败";
+            face = pixmap;
+        }
         setWindowIcon(face);
         tray->setIcon(face);
 
         // 设置到UP头像
         face = liveService->upFace.scaled(ui->upHeaderLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
         QPixmap circle = PixmapUtil::toCirclePixmap(face);
+        ui->upHeaderLabel->setStyleSheet("");
         ui->upHeaderLabel->setPixmap(circle);
         if (musicWindow)
         {
@@ -850,15 +1034,15 @@ void MainWindow::initLiveService()
         }
     });
 
-    connect(liveService, &LiveRoomService::signalUpSignatureChanged, this, [=](const QString& signature) {
+    connect(liveService, &LiveServiceBase::signalUpSignatureChanged, this, [=](const QString& signature) {
         ui->upLevelLabel->setText(signature);
     });
 
-    connect(liveService, &LiveRoomService::signalFinishDove, this, [=]{
+    connect(liveService, &LiveServiceBase::signalFinishDove, this, [=]{
         ui->doveCheck->setChecked(false);
     });
 
-    connect(liveService, &LiveRoomService::signalGuardsChanged, this, [=]{
+    connect(liveService, &LiveServiceBase::signalGuardsChanged, this, [=]{
         if (ui->saveMonthGuardCheck->isChecked())
             saveMonthGuard();
 
@@ -870,49 +1054,64 @@ void MainWindow::initLiveService()
         ui->guardCountLabel->setText(snum(ac->currentGuards.size()));
     });
 
-    connect(liveService, &LiveRoomService::signalOnlineRankChanged, this, [=]{
+    connect(liveService, &LiveServiceBase::signalOnlineRankChanged, this, [=]{
         updateOnlineRankGUI();
     });
 
-    connect(liveService, &LiveRoomService::signalAutoAdjustDanmakuLongest, this, [=]{
+    connect(liveService, &LiveServiceBase::signalAutoAdjustDanmakuLongest, this, [=]{
         if (us->adjustDanmakuLongest)
             liveService->adjustDanmakuLongest();
     });
 
-    connect(liveService, &LiveRoomService::signalDanmuPopularChanged, this, [=](const QString& text){
+    connect(liveService, &LiveServiceBase::signalOnlineCountChanged, this, [=](qint64 count){
+        ui->guardCountLabel->setText(snum(count));
+        ui->guardCountTextLabel->setText("在线");
+    });
+
+    connect(liveService, &LiveServiceBase::signalDanmuPopularChanged, this, [=](const QString& text){
         ui->danmuCountLabel->setToolTip(text);
     });
 
-    connect(liveService, &LiveRoomService::signalPopularChanged, this, [=](qint64 count){
+    connect(liveService, &LiveServiceBase::signalPopularChanged, this, [=](qint64 count){
         ui->popularityLabel->setText(snum(count));
     });
 
-    connect(liveService, &LiveRoomService::signalPopularTextChanged, this, [=](const QString& text){
+    connect(liveService, &LiveServiceBase::signalPopularTextChanged, this, [=](const QString& text){
         ui->popularityLabel->setToolTip(text);
     });
 
-    connect(liveService, &LiveRoomService::signalFansCountChanged, this, [=](qint64 count){
+    connect(liveService, &LiveServiceBase::signalFansCountChanged, this, [=](qint64 count){
         ui->fansCountLabel->setText(snum(count));
     });
 
-    connect(liveService, &LiveRoomService::signalSignInfoChanged, this, [=](const QString& text){
+    connect(liveService, &LiveServiceBase::signalTotalComeUserChanged, this, [=](qint64 count){
+        ui->hourRankLabel->setText(snum(count));
+        ui->hourRankTextLabel->setText("总进入");
+    });
+
+    connect(liveService, &LiveServiceBase::signalTotalPvChanged, this, [=](const QString& text){
+        ui->liveRankLabel->setText(text);
+        ui->liveRankTextLabel->setText("总PV");
+    });
+
+    connect(liveService, &LiveServiceBase::signalSignInfoChanged, this, [=](const QString& text){
         ui->autoDoSignCheck->setText(text);
     });
 
-    connect(liveService, &LiveRoomService::signalSignDescChanged, this, [=](const QString& text){
+    connect(liveService, &LiveServiceBase::signalSignDescChanged, this, [=](const QString& text){
         ui->autoDoSignCheck->setToolTip(text);
     });
 
-    connect(liveService, &LiveRoomService::signalLOTInfoChanged, this, [=](const QString& text){
+    connect(liveService, &LiveServiceBase::signalLOTInfoChanged, this, [=](const QString& text){
         ui->autoLOTCheck->setText(text);
     });
 
-    connect(liveService, &LiveRoomService::signalLOTDescChanged, this, [=](const QString& text){
+    connect(liveService, &LiveServiceBase::signalLOTDescChanged, this, [=](const QString& text){
         ui->autoLOTCheck->setToolTip(text);
     });
 
     /// CMD事件
-    connect(liveService, &LiveRoomService::signalLiveStarted, this, [=]{
+    connect(liveService, &LiveServiceBase::signalLiveStarted, this, [=]{
         if (ui->recordCheck->isChecked())
             startLiveRecord();
         liveService->reconnectWSDuration = INTERVAL_RECONNECT_WS;
@@ -938,13 +1137,12 @@ void MainWindow::initLiveService()
                 && QDateTime::currentMSecsSinceEpoch() - liveService->liveTimestamp > 60000) // 起码是上次下播10秒钟后
             cr->sendAutoMsg(text, LiveDanmaku());
         ui->liveStatusButton->setText("已开播");
-        ac->liveStatus = 1;
         if (ui->timerConnectServerCheck->isChecked() && liveService->connectServerTimer->isActive())
             liveService->connectServerTimer->stop();
         slotStartWork(); // 每个房间第一次开始工作
     });
 
-    connect(liveService, &LiveRoomService::signalLiveStopped, this, [=]{
+    connect(liveService, &LiveServiceBase::signalLiveStopped, this, [=]{
         finishLiveRecord();
         liveService->reconnectWSDuration = INTERVAL_RECONNECT_WS;
         this->liveTimeTimer->stop();
@@ -960,106 +1158,113 @@ void MainWindow::initLiveService()
                 && QDateTime::currentMSecsSinceEpoch() - liveService->liveTimestamp > 600000) // 起码是十分钟后再播报，万一只是尝试开播呢
             cr->sendAutoMsg(text, LiveDanmaku());
         ui->liveStatusButton->setText("已下播");
-        ac->liveStatus = 0;
 
         // 重新定时连接
         if (ui->timerConnectServerCheck->isChecked() && !liveService->connectServerTimer->isActive())
             liveService->connectServerTimer->start();
     });
 
-    connect(liveService, &LiveRoomService::signalReceiveDanmakuTotalCountChanged, this, [=](int count) {
+    connect(liveService, &LiveServiceBase::signalReceiveDanmakuTotalCountChanged, this, [=](int count) {
         ui->danmuCountLabel->setText(snum(count));
     });
 
-    connect(liveService, &LiveRoomService::signalTryBlockDanmaku, this, &MainWindow::slotTryBlockDanmaku);
+    connect(liveService, &LiveServiceBase::signalTryBlockDanmaku, this, &MainWindow::slotTryBlockDanmaku);
 
-    connect(liveService, &LiveRoomService::signalNewGiftReceived, this, &MainWindow::slotNewGiftReceived);
+    connect(liveService, &LiveServiceBase::signalNewGiftReceived, this, &MainWindow::slotNewGiftReceived);
 
-    connect(liveService, &LiveRoomService::signalSendUserWelcome, this, &MainWindow::slotSendUserWelcome);
+    connect(liveService, &LiveServiceBase::signalSendUserWelcome, this, &MainWindow::slotSendUserWelcome);
 
-    connect(liveService, &LiveRoomService::signalSendAttentionThank, this, &MainWindow::slotSendAttentionThank);
+    connect(liveService, &LiveServiceBase::signalSendAttentionThank, this, &MainWindow::slotSendAttentionThank);
 
-    connect(liveService, &LiveRoomService::signalNewGuardBuy, this, &MainWindow::slotNewGuardBuy);
+    connect(liveService, &LiveServiceBase::signalNewGuardBuy, this, &MainWindow::slotNewGuardBuy);
 
     /// 直播交互
-    connect(liveService, &LiveRoomService::signalGetRoomAndRobotFinished, this, [=]() {
+    connect(liveService, &LiveServiceBase::signalGetRoomAndRobotFinished, this, [=]() {
         triggerCmdEvent("LOGIN_FINISHED", LiveDanmaku());
     });
 
-    connect(liveService, &LiveRoomService::signalStartWork, this, [=] {
+    connect(liveService, &LiveServiceBase::signalStartWork, this, [=] {
         slotStartWork();
     });
 
-    connect(liveService, &LiveRoomService::signalCanRecord, this, [=] {
+    connect(liveService, &LiveServiceBase::signalCanRecord, this, [=] {
         if (ui->recordCheck->isChecked() && liveService->isLiving())
             startLiveRecord();
     });
 
-    connect(liveService, &LiveRoomService::signalHeartTimeNumberChanged, this, [=](int num, int minute) {
+    connect(liveService, &LiveServiceBase::signalHeartTimeNumberChanged, this, [=](int num, int minute) {
         ui->acquireHeartCheck->setToolTip("今日已领" + snum(num) + "个小心心(" + snum(minute) + "分钟)");
     });
 
-    connect(liveService, &LiveRoomService::signalDanmakuLongestChanged, this, [=](int length) {
+    connect(liveService, &LiveServiceBase::signalDanmakuLongestChanged, this, [=](int length) {
         ui->danmuLongestSpin->setValue(length);
         on_danmuLongestSpin_editingFinished();
     });
 
-    connect(liveService, &LiveRoomService::signalRoomRankChanged, this, [=](const QString& desc, const QString& color) {
+    connect(liveService, &LiveServiceBase::signalRoomRankChanged, this, [=](const QString& desc, const QString& color) {
         ui->roomRankLabel->setStyleSheet("color: " + color + ";");
         ui->roomRankLabel->setText(desc);
         ui->roomRankLabel->setToolTip(QDateTime::currentDateTime().toString("更新时间：hh:mm:ss"));
     });
 
-    connect(liveService, &LiveRoomService::signalHotRankChanged, this, [=](int rank, const QString& area, const QString& msg) {
+    connect(liveService, &LiveServiceBase::signalHotRankChanged, this, [=](int rank, const QString& area, const QString& msg) {
         ui->roomRankLabel->setText(snum(rank));
         ui->roomRankTextLabel->setText(area + "榜");
         ui->roomRankLabel->setToolTip(msg);
     });
 
-    connect(liveService, &LiveRoomService::signalWatchCountChanged, this, [=](const QString& text) {
+    connect(liveService, &LiveServiceBase::signalWatchCountChanged, this, [=](const QString& text) {
         ui->watchedLabel->setToolTip(text);
     });
 
-    connect(liveService, &LiveRoomService::signalLikeChanged, this, [=](int count) {
-        ui->popularityTextLabel->setToolTip("点赞数量：" + snum(count));
+    connect(liveService, &LiveServiceBase::signalLikeChanged, this, [=](int count) {
+        if (rt->livePlatform == Douyin)
+        {
+            ui->roomRankLabel->setText(snum(count));
+            ui->roomRankTextLabel->setText("点赞");
+        }
+        else
+        {
+            ui->popularityTextLabel->setToolTip("点赞数量：" + snum(count));
+        }
     });
 
     /// 信号传递
-    connect(liveService, &LiveRoomService::signalTriggerCmdEvent, this, [=](const QString& cmd, const LiveDanmaku& danmaku, bool debug) {
+    connect(liveService, &LiveServiceBase::signalTriggerCmdEvent, this, [=](const QString& cmd, const LiveDanmaku& danmaku, bool debug) {
         triggerCmdEvent(cmd, danmaku, debug);
     });
 
-    connect(liveService, &LiveRoomService::signalLocalNotify, this, [=](const QString& text, qint64 uid) {
+    connect(liveService, &LiveServiceBase::signalLocalNotify, this, [=](const QString& text, UIDT uid) {
         localNotify(text, uid);
     });
 
-    connect(liveService, &LiveRoomService::signalShowError, this, [=](const QString& title, const QString& info) {
+    connect(liveService, &LiveServiceBase::signalShowError, this, [=](const QString& title, const QString& info) {
         showError(title, info);
     });
 
-    connect(liveService, &LiveRoomService::signalUpdatePermission, this, [=] {
+    connect(liveService, &LiveServiceBase::signalUpdatePermission, this, [=] {
         updatePermission();
     });
 
-    connect(liveService, &LiveRoomService::signalNewHour, this, [=] {
+    connect(liveService, &LiveServiceBase::signalNewHour, this, [=] {
 
     });
 
-    connect(liveService, &LiveRoomService::signalNewDay, this, [=] {
+    connect(liveService, &LiveServiceBase::signalNewDay, this, [=] {
         // 永久禁言
         detectEternalBlockUsers();
     });
 
-    connect(liveService, &LiveRoomService::signalSendAutoMsg, this, [=](const QString& msg, const LiveDanmaku& danmaku) {
+    connect(liveService, &LiveServiceBase::signalSendAutoMsg, this, [=](const QString& msg, const LiveDanmaku& danmaku) {
         cr->sendAutoMsg(msg, danmaku);
     });
 
-    connect(liveService, &LiveRoomService::signalSendAutoMsgInFirst, this, [=](const QString& msg, const LiveDanmaku& danmaku, int interval) {
+    connect(liveService, &LiveServiceBase::signalSendAutoMsgInFirst, this, [=](const QString& msg, const LiveDanmaku& danmaku, int interval) {
         cr->sendAutoMsgInFirst(msg, danmaku, interval);
     });
 
     /// 大乱斗
-    connect(liveService, &LiveRoomService::signalBattleEnabled, this, [=](bool enable) {
+    connect(liveService, &LiveServiceBase::signalBattleEnabled, this, [=](bool enable) {
         if (enable)
         {
             ui->battleInfoWidget->show();
@@ -1070,39 +1275,39 @@ void MainWindow::initLiveService()
         }
     });
 
-    connect(liveService, &LiveRoomService::signalBattleRankGot, this, [=] {
+    connect(liveService, &LiveServiceBase::signalBattleRankGot, this, [=] {
         if (ui->battleInfoWidget->isHidden())
             ui->battleInfoWidget->show();
         ui->winningStreakLabel->setText("连胜" + snum(ac->winningStreak) + "场");
     });
-    connect(liveService, &LiveRoomService::signalBattleRankNameChanged, this, [=](const QString& text) {
+    connect(liveService, &LiveServiceBase::signalBattleRankNameChanged, this, [=](const QString& text) {
         ui->battleRankNameLabel->setText(text);
     });
 
-    connect(liveService, &LiveRoomService::signalBattleRankIconChanged, this, [=](const QPixmap& pixmap) {
+    connect(liveService, &LiveServiceBase::signalBattleRankIconChanged, this, [=](const QPixmap& pixmap) {
         QPixmap p = pixmap;
         if (!p.isNull())
             p = pixmap.scaledToHeight(ui->battleRankNameLabel->height() * 2, Qt::SmoothTransformation);
         ui->battleRankIconLabel->setPixmap(pixmap);
     });
 
-    connect(liveService, &LiveRoomService::signalBattleNumsChanged, this, [=](const QString& text) {
+    connect(liveService, &LiveServiceBase::signalBattleNumsChanged, this, [=](const QString& text) {
         ui->winningStreakLabel->setToolTip(text);
     });
 
-    connect(liveService, &LiveRoomService::signalBattleSeasonInfoChanged, this, [=](const QString& text) {
+    connect(liveService, &LiveServiceBase::signalBattleSeasonInfoChanged, this, [=](const QString& text) {
         ui->battleRankIconLabel->setToolTip(text);
     });
 
-    connect(liveService, &LiveRoomService::signalBattleNumsChanged, this, [=](const QString& text) {
+    connect(liveService, &LiveServiceBase::signalBattleNumsChanged, this, [=](const QString& text) {
         ui->winningStreakLabel->setToolTip(text);
     });
 
-    connect(liveService, &LiveRoomService::signalBattleScoreChanged, this, [=](const QString& text) {
+    connect(liveService, &LiveServiceBase::signalBattleScoreChanged, this, [=](const QString& text) {
         ui->battleRankNameLabel->setToolTip(text);
     });
 
-    connect(liveService, &LiveRoomService::signalBattlePrepared, this, [=] {
+    connect(liveService, &LiveServiceBase::signalBattlePrepared, this, [=] {
         // 处理PK对面直播间事件
         if (hasEvent("PK_MATCH_INFO"))
         {
@@ -1110,12 +1315,12 @@ void MainWindow::initLiveService()
         }
     });
 
-    connect(liveService, &LiveRoomService::signalBattleStarted, this, [=] {
+    connect(liveService, &LiveServiceBase::signalBattleStarted, this, [=] {
         if (danmakuWindow)
         {
             danmakuWindow->showStatusText();
             danmakuWindow->setToolTip(liveService->pkUname);
-            danmakuWindow->setPkStatus(1, liveService->pkRoomId.toLongLong(), liveService->pkUid.toLongLong(), liveService->pkUname);
+            danmakuWindow->setPkStatus(1, liveService->pkRoomId.toLongLong(), liveService->pkUid, liveService->pkUname);
         }
         ui->actionShow_PK_Video->setEnabled(true);
 
@@ -1126,7 +1331,7 @@ void MainWindow::initLiveService()
         }
     });
 
-    connect(liveService, &LiveRoomService::signalBattleFinished, this, [=] {
+    connect(liveService, &LiveServiceBase::signalBattleFinished, this, [=] {
         if (danmakuWindow)
         {
             danmakuWindow->hideStatusText();
@@ -1135,23 +1340,23 @@ void MainWindow::initLiveService()
         }
     });
 
-    connect(liveService, &LiveRoomService::signalBattleStartMatch, this, [=] {
+    connect(liveService, &LiveServiceBase::signalBattleStartMatch, this, [=] {
         if (danmakuWindow)
             danmakuWindow->setStatusText("正在匹配...");
     });
 
     /// 弹幕姬
-    connect(liveService, &LiveRoomService::signalDanmakuStatusChanged, this, [=](const QString& text) {
+    connect(liveService, &LiveServiceBase::signalDanmakuStatusChanged, this, [=](const QString& text) {
         if (danmakuWindow)
             danmakuWindow->setStatusText(text);
     });
 
-    connect(liveService, &LiveRoomService::signalPKStatusChanged, this, [=](int pkType, qint64 roomId, qint64 upUid, const QString& upUname) {
+    connect(liveService, &LiveServiceBase::signalPKStatusChanged, this, [=](int pkType, qint64 roomId, UIDT upUid, const QString& upUname) {
         if (danmakuWindow)
             danmakuWindow->setPkStatus(pkType, roomId, upUid, upUname);
     });
 
-    connect(liveService, &LiveRoomService::signalDanmakuAddBlockText, this, [=](const QString& word, int second) {
+    connect(liveService, &LiveServiceBase::signalDanmakuAddBlockText, this, [=](const QString& word, int second) {
         if (danmakuWindow)
         {
             danmakuWindow->addBlockText(word);
@@ -1161,19 +1366,19 @@ void MainWindow::initLiveService()
         }
     });
 
-    connect(liveService, &LiveRoomService::signalMergeGiftCombo, this, [=](const LiveDanmaku& danmaku, int delayTime) {
+    connect(liveService, &LiveServiceBase::signalMergeGiftCombo, this, [=](const LiveDanmaku& danmaku, int delayTime) {
         if (danmakuWindow)
             danmakuWindow->mergeGift(danmaku, delayTime);
     });
 
     /// 交互
-    connect(liveService, &LiveRoomService::signalActionShowPKVideoChanged, this, [=](bool enabled) {
+    connect(liveService, &LiveServiceBase::signalActionShowPKVideoChanged, this, [=](bool enabled) {
         ui->actionShow_PK_Video->setEnabled(enabled);
     });
-    connect(liveService, &LiveRoomService::signalActionJoinBattleChanged, this, [=](bool enabled) {
+    connect(liveService, &LiveServiceBase::signalActionJoinBattleChanged, this, [=](bool enabled) {
         ui->actionJoin_Battle->setEnabled(enabled);
     });
-    connect(liveService, &LiveRoomService::signalAutoMelonMsgChanged, this, [=](const QString& msg) {
+    connect(liveService, &LiveServiceBase::signalAutoMelonMsgChanged, this, [=](const QString& msg) {
         ui->pkAutoMelonCheck->setToolTip(msg);
     });
 
@@ -1204,22 +1409,109 @@ void MainWindow::initLiveService()
     });
 
     // 大乱斗自动赠送吃瓜
-    connect(liveService->pkEndingTimer, &QTimer::timeout, liveService, &LiveRoomService::slotPkEndingTimeout);
+    connect(liveService->pkEndingTimer, &QTimer::timeout, liveService, &LiveServiceBase::slotPkEndingTimeout);
 
     // 私信功能开关
-    connect(liveService, &LiveRoomService::signalRefreshPrivateMsgEnabled, this, [=](bool enabled) {
+    connect(liveService, &LiveServiceBase::signalRefreshPrivateMsgEnabled, this, [=](bool enabled) {
         ui->receivePrivateMsgCheck->setChecked(enabled);
     });
 
     // 评价
-    connect(liveService, &LiveRoomService::signalPositiveVoteCountChanged, this, [=](const QString& text) {
+    connect(liveService, &LiveServiceBase::signalPositiveVoteCountChanged, this, [=](const QString& text) {
         ui->positiveVoteCheck->setText(text);
     });
 
-    connect(liveService, &LiveRoomService::signalPositiveVoteStateChanged, this, [=](bool like) {
+    connect(liveService, &LiveServiceBase::signalPositiveVoteStateChanged, this, [=](bool like) {
         ui->positiveVoteCheck->setChecked(like);
     });
 
+    // 子账号
+    connect(liveService, &LiveServiceBase::signalSubAccountChanged, this, &MainWindow::slotSubAccountChanged);
+
+}
+
+/// 根据不同的平台调整对应的控件
+void MainWindow::initLivePlatform()
+{
+    // 对应控件调整
+    if (rt->livePlatform == Bilibili)
+    {
+        ui->roomIdEdit->setPlaceholderText("房间号");
+    }
+    else if (rt->livePlatform == Douyin)
+    {
+        ui->roomIdEdit->setPlaceholderText("房间号");
+        ui->roomIdEdit->resize(ui->roomIdEdit->width() * 2, ui->roomIdEdit->height()); // 抖音的房间号更长
+        ui->guardCountTextLabel->setText("在线");
+    }
+    else if (rt->livePlatform == Keyu || rt->livePlatform == AnyWS)
+    {
+        ui->roomIdEdit->setValidator(nullptr);
+        ui->roomIdEdit->setPlaceholderText("WebSocket地址");
+        ui->roomIdEdit->resize(ui->roomIdEdit->width() * 3, ui->roomIdEdit->height());
+
+        ui->robotNameButton->setText(rt->CPU_ID);
+
+        ac->cookieUid = rt->CPU_ID;
+    }
+
+    // 平台专属工具
+    if (rt->livePlatform == Bilibili)
+    {
+        ui->tenCardLabel4->setText(R"(
+<html><head/><body>
+<p>
+    <a href="this://gift_list"><span style="text-decoration: none; color:#8cc2d4;">礼物ID查看</span></a>&nbsp;
+    <a href="this://capture_manager"><span style=" text-decoration: none; color:#8cc2d4;">视频截图管理</span></a>&nbsp;
+    <a href="this://start_pk"><span style=" text-decoration: none; color:#8cc2d4;">开启大乱斗</span></a>
+</p>
+<p>
+    <a href="this://guard_catch"><span style=" text-decoration: none; color:#8cc2d4;">黑听舰长捕捉</span></a>&nbsp;
+    <a href="this://catch_you"><span style=" text-decoration: none; color:#8cc2d4;">跑骚抓人检测</span></a>
+</p>
+<p>
+    <a href="this://live_status"><span style=" text-decoration: none; color:#8cc2d4;">直播状态查询</span></a>&nbsp;
+    <a href="this://lyrics"><span style=" text-decoration: none; color:#8cc2d4;">歌词字幕投稿</span></a>
+</p></body></html>)");
+    }
+    else if (rt->livePlatform == Douyin)
+    {
+        ui->tenCardLabel4->setText(R"(
+<html><head/><body>
+<p>
+    <a href="this://notice_manager"><span style="text-decoration: none; color:#8cc2d4;">消息批量管理</span></a>&nbsp;
+</p></body></html>)");
+    }
+    else
+    {
+        ui->tenCardLabel4->setText(R"(
+<html><head/><body>
+<p>
+    <a href="this://"><span style="text-decoration: none; color:#8cc2d4;">无可用工具</span></a>&nbsp;
+</p></body></html>)");
+    }
+
+    // 只有B站能用的功能
+    if (rt->livePlatform != Bilibili)
+    {
+        ui->battleInfoWidget->hide(); // 大乱斗信息
+        ui->danmakuBlockSettingsCard->setEnabled(false); // 禁言
+        ui->danmakuCuanmenSettingsCard->setEnabled(false); // PK串门
+        ui->liveGreetSettingsCard->setEnabled(false); // 开播问候
+        ui->timerConnectSettingsCard->setEnabled(false); // 定时连接
+        ui->autoOperatorSettingsCard->setEnabled(false); // 自动操作
+        ui->recordSettingsCard->setEnabled(false); // 录播
+        ui->privateMsgSettingsCard->setEnabled(false); // 私信
+        ui->toutaGiftSettingsCard->setEnabled(false); // 偷塔
+        ui->page_6->setEnabled(false); // 自动禁言页
+        ui->tabSubAccount->setEnabled(false); // 子账号页
+        ui->adjustDanmakuLongestCheck->setChecked(false); // 自动调整长度
+    }
+
+    // 已经失效的
+    {
+        ui->TxNLPSettingsCard->hide(); // 腾讯闲聊
+    }
 }
 
 /// 读取 settings 中的变量，并进行一系列初始化操作
@@ -1227,17 +1519,19 @@ void MainWindow::initLiveService()
 /// 所以里面的所有变量都要做好重复初始化的准备
 void MainWindow::readConfig()
 {
-    // 平台
-    rt->livePlatform = (LivePlatform)(us->value("platform/live", 0).toInt());
-
     // 界面效果
     ui->closeGuiCheck->setChecked(us->closeGui = us->value("mainwindow/closeGui", false).toBool());
 
     // 默认配置
-    if (isFileExist(rt->dataPath + "dynamic_config.json"))
+    QString dynamicConfigPath = rt->dataPath + "dynamic_config.json";
+    if (!isFileExist(dynamicConfigPath))
+    {
+        dynamicConfigPath = ":/documents/dynamic_config";
+    }
+    if (isFileExist(dynamicConfigPath))
     {
         // 目前是从文件里读取，但是应当联网更新的
-        QString text = readTextFileAutoCodec(rt->dataPath + "dynamic_config.json");
+        QString text = readTextFileAutoCodec(dynamicConfigPath);
         if (!text.isEmpty())
         {
             QJsonParseError error;
@@ -1284,19 +1578,17 @@ void MainWindow::readConfig()
         ui->musicConfigStack->setCurrentIndex(musicStackIndex);
 
     // 房间号
-    ac->roomId = us->value("danmaku/roomId", "").toString();
+    ac->roomId = us->value("danmaku/roomId" + rt->getPlatformSuffix(), "").toString();
+    if (rt->livePlatform == Keyu && ac->roomId.isEmpty())
+    {
+        ac->roomId = "ws://localhost:12011"; // 设置可遇默认链接
+    }
     if (!ac->roomId.isEmpty())
     {
         ui->roomIdEdit->setText(ac->roomId);
 #ifdef ZUOQI_ENTRANCE
         fakeEntrance->setRoomId(ac->identityCode);
 #endif
-    }
-    else // 设置为默认界面
-    {
-        QTimer::singleShot(0, [=]{
-            setRoomCover(QPixmap(":/bg/bg"));
-        });
     }
 
     // 移除间隔
@@ -1345,11 +1637,14 @@ void MainWindow::readConfig()
     ui->languageAutoTranslateCheck->setChecked(trans);
 
     // 自动回复
-    us->AIReplyMsgLocal = us->value("danmaku/aiReply", false).toBool();
+    us->AIReplyMsgEnabled = us->value("danmaku/aiReply", false).toBool();
     us->AIReplyMsgSend = us->value("danmaku/aiReplyMsg", 0).toInt();
-    ui->AIReplyCheck->setChecked(us->AIReplyMsgLocal);
+    us->AIReplySelf = us->value("danmaku/aiReplySelf", false).toBool();
+    ui->AIReplyCheck->setChecked(us->AIReplyMsgEnabled);
     ui->AIReplyMsgCheck->setCheckState(static_cast<Qt::CheckState>(us->AIReplyMsgSend));
-    ui->AIReplyMsgCheck->setEnabled(us->AIReplyMsgLocal);
+    ui->AIReplyMsgCheck->setEnabled(us->AIReplyMsgEnabled);
+    ui->GPTAnalysisCheck->setEnabled(us->AIReplyMsgEnabled);
+    ui->AIReplySelfCheck->setChecked(us->AIReplySelf);
 
     // 黑名单管理
     ui->enableBlockCheck->setChecked(us->value("block/enableBlock", false).toBool());
@@ -1395,8 +1690,8 @@ void MainWindow::readConfig()
     recordTimer->setInterval(recordSplit * 60000); // 默认30分钟断开一次
 
     // 账号
-    ac->browserCookie = us->value("danmaku/browserCookie", "").toString();
-    ac->browserData = us->value("danmaku/browserData", "").toString();
+    ac->browserCookie = us->value("danmaku/browserCookie" + rt->getPlatformSuffix(), "").toString();
+    ac->browserData = us->value("danmaku/browserData" + rt->getPlatformSuffix(), "").toString();
     int posl = ac->browserCookie.indexOf("bili_jct=") + 9;
     int posr = ac->browserCookie.indexOf(";", posl);
     if (posr == -1) posr = ac->browserCookie.length();
@@ -1444,10 +1739,10 @@ void MainWindow::readConfig()
         if (sl.size() < 2)
             continue;
 
-        us->localNicknames.insert(sl.at(0).toLongLong(), sl.at(1));
+        us->localNicknames.insert(sl.at(0), sl.at(1));
     }
     if (us->localNicknames.empty())
-        us->localNicknames.insert(20285041, "神奇弹幕开发者");
+        us->localNicknames.insert("20285041", "神奇弹幕开发者");
 
     // 礼物别名
     us->giftAlias.clear();
@@ -1466,27 +1761,27 @@ void MainWindow::readConfig()
     QStringList usersS = us->value("danmaku/careUsers", "20285041").toString().split(";", QString::SkipEmptyParts);
     foreach (QString s, usersS)
     {
-        us->careUsers.append(s.toLongLong());
+        us->careUsers.append(s);
     }
     if (us->careUsers.empty())
-        us->careUsers.append(20285041);
+        us->careUsers.append("20285041");
 
     // 强提醒
     us->strongNotifyUsers.clear();
     QStringList usersSN = us->value("danmaku/strongNotifyUsers", "").toString().split(";", QString::SkipEmptyParts);
     foreach (QString s, usersSN)
     {
-        us->strongNotifyUsers.append(s.toLongLong());
+        us->strongNotifyUsers.append(s);
     }
     if (us->strongNotifyUsers.isEmpty())
-        us->strongNotifyUsers.append(20285041);
+        us->strongNotifyUsers.append("20285041");
 
     // 不自动欢迎
     us->notWelcomeUsers.clear();
     QStringList usersNW = us->value("danmaku/notWelcomeUsers", "").toString().split(";", QString::SkipEmptyParts);
     foreach (QString s, usersNW)
     {
-        us->notWelcomeUsers.append(s.toLongLong());
+        us->notWelcomeUsers.append(s);
     }
 
     // 不自动回复
@@ -1494,7 +1789,7 @@ void MainWindow::readConfig()
     QStringList usersNR = us->value("danmaku/notReplyUsers", "").toString().split(";", QString::SkipEmptyParts);
     foreach (QString s, usersNR)
     {
-        us->notReplyUsers.append(s.toLongLong());
+        us->notReplyUsers.append(s);
     }
 
     // 礼物连击
@@ -1667,6 +1962,7 @@ void MainWindow::readConfig()
 
     // chatgpt
     us->chatgpt_prompt = us->value("chatgpt/prompt").toString();
+    ui->chatGPTEndpointEdit->setText(us->chatgpt_endpiont = us->value("chatgpt/endpoint", us->chatgpt_endpiont).toString());
     ui->chatGPTKeyEdit->setText(us->open_ai_key = us->value("chatgpt/open_ai_key", us->open_ai_key).toString());
     ui->chatGPTModelNameCombo->setCurrentText(us->chatgpt_model_name = us->value("chatgpt/model_name", us->chatgpt_model_name).toString());
     ui->chatGPTMaxTokenCountSpin->setValue(us->chatgpt_max_token_count = us->value("chatgpt/max_token_count", us->chatgpt_max_token_count).toInt());
@@ -1731,7 +2027,7 @@ void MainWindow::readConfig()
     // 粉丝勋章
     ui->autoSwitchMedalCheck->setChecked(us->value("danmaku/autoSwitchMedal", false).toBool());
 
-    // 滚屏
+    // 滚屏（全屏弹幕）
     ui->enableScreenDanmakuCheck->setChecked(us->value("screendanmaku/enableDanmaku", false).toBool());
     ui->enableScreenMsgCheck->setChecked(us->value("screendanmaku/enableMsg", false).toBool());
     ui->screenDanmakuWithNameCheck->setChecked(us->value("screendanmaku/showName", true).toBool());
@@ -1746,6 +2042,7 @@ void MainWindow::readConfig()
     if (!danmakuFontString.isEmpty())
         screenDanmakuFont.fromString(danmakuFontString);
     screenDanmakuColor = qvariant_cast<QColor>(us->value("screendanmaku/color", QColor(0, 0, 0)));
+    loadScreenMonitors();
 
     // 自动签到
     ui->autoDoSignCheck->setChecked(us->autoDoSign = us->value("danmaku/autoDoSign", false).toBool());
@@ -1767,7 +2064,7 @@ void MainWindow::readConfig()
     for (int i = 0; i < eternalBlockSize; i++)
     {
         EternalBlockUser eb = EternalBlockUser::fromJson(eternalBlockArray.at(i).toObject());
-        if (eb.uid && eb.roomId)
+        if (!eb.uid.isEmpty() && eb.roomId)
             us->eternalBlockUsers.append(eb);
     }
 
@@ -1811,6 +2108,14 @@ void MainWindow::readConfig()
     ui->emailFromEdit->setText(us->value("email/from").toString());
     ui->emailPasswordEdit->setText(us->value("email/password").toString());
 
+    // 代理
+    ui->proxyTypeCombo->setCurrentText(us->value("proxy/type", ui->proxyTypeCombo->currentText()).toString());
+    ui->proxyHostEdit->setText(us->value("proxy/host").toString());
+    ui->proxyPortSpin->setValue(us->value("proxy/port", ui->proxyPortSpin->value()).toInt());
+    ui->proxyUsernameEdit->setText(us->value("proxy/username").toString());
+    ui->proxyPasswordEdit->setText(us->value("proxy/password").toString());
+    setNetworkProxy();
+
     // 开启服务端
     bool enableServer = us->value("server/enabled", false).toBool();
     ui->serverCheck->setChecked(enableServer);
@@ -1839,6 +2144,9 @@ void MainWindow::readConfig()
     // 恢复游戏数据
     restoreGameNumbers();
     restoreGameTexts();
+
+    // 子账号系统
+    restoreSubAccount();
 }
 
 /**
@@ -1848,12 +2156,31 @@ void MainWindow::readConfig()
 void MainWindow::readConfig2()
 {
     // 数据库
-    us->saveToSqlite = hasPermission() && us->value("db/sqlite").toBool();
+    us->saveToSqlite = hasPermission() && us->value("db/sqlite", true).toBool();
     ui->saveToSqliteCheck->setChecked(us->saveToSqlite);
-    ui->saveCmdToSqliteCheck->setChecked(us->saveCmdToSqlite = us->value("db/cmd").toBool());
+    ui->saveCmdToSqliteCheck->setChecked(us->saveCmdToSqlite = us->value("db/cmd", false).toBool());
     ui->saveCmdToSqliteCheck->setEnabled(us->saveToSqlite);
     if (us->saveToSqlite)
         sqlService.open();
+
+    // 粉丝档案
+    us->fansArchives = hasPermission() && us->value("us/fansArchives", true).toBool();
+    ui->fansArchivesCheck->setChecked(us->fansArchives);
+    ui->fansArchivesByRoomCheck->setChecked(us->fansArchivesByRoom = us->value("us/fansArchivesByRoom", false).toBool());
+    if (us->fansArchives)
+        initFansArchivesService();
+
+    if (hasPermission())
+    {
+        static bool first = true;
+        if (first)
+        {
+            first = false;
+            QTimer::singleShot(60000, liveService, [=]{
+                liveService->refreshCookie();
+            });
+        }
+    }
 }
 
 void MainWindow::initDanmakuWindow()
@@ -1862,10 +2189,12 @@ void MainWindow::initDanmakuWindow()
     rt->danmakuWindow = danmakuWindow;
     danmakuWindow->setLiveService(this->liveService);
     danmakuWindow->setChatService(this->chatService);
+    danmakuWindow->setSqlService(&this->sqlService);
+    danmakuWindow->setFansArchivesService(this->fansArchivesService);
     danmakuWindow->hasReply = [=](const QString& text) { return hasReply(text); };
     danmakuWindow->rejectReply = [=](const LiveDanmaku& danmaku) { return cr->isFilterRejected("FILTER_AI_REPLY", danmaku); };
 
-    connect(liveService, &LiveRoomService::signalNewDanmaku, danmakuWindow, [=](const LiveDanmaku &danmaku) {
+    connect(liveService, &LiveServiceBase::signalNewDanmaku, danmakuWindow, [=](const LiveDanmaku &danmaku) {
         if (danmaku.is(MSG_DANMAKU))
         {
             if (cr->isFilterRejected("FILTER_DANMAKU_MSG", danmaku))
@@ -1892,11 +2221,10 @@ void MainWindow::initDanmakuWindow()
 
     connect(this, SIGNAL(signalRemoveDanmaku(LiveDanmaku)), danmakuWindow, SLOT(slotOldLiveDanmakuRemoved(LiveDanmaku)));
     connect(danmakuWindow, SIGNAL(signalSendMsg(QString)), liveService, SLOT(sendMsg(QString)));
-    connect(danmakuWindow, SIGNAL(signalAddBlockUser(qint64, int, QString)), liveService, SLOT(addBlockUser(qint64, int, QString)));
-    connect(danmakuWindow, SIGNAL(signalDelBlockUser(qint64)), liveService, SLOT(delBlockUser(qint64)));
-    connect(danmakuWindow, SIGNAL(signalEternalBlockUser(qint64,QString,QString)), this, SLOT(eternalBlockUser(qint64,QString,QString)));
-    connect(danmakuWindow, SIGNAL(signalCancelEternalBlockUser(qint64)), this, SLOT(cancelEternalBlockUser(qint64)));
-    connect(danmakuWindow, SIGNAL(signalAIReplyed(QString, LiveDanmaku)), this, SLOT(slotAIReplyed(QString, LiveDanmaku)));
+    connect(danmakuWindow, SIGNAL(signalAddBlockUser(QString, int, QString)), liveService, SLOT(addBlockUser(QString, int, QString)));
+    connect(danmakuWindow, SIGNAL(signalDelBlockUser(QString)), liveService, SLOT(delBlockUser(QString)));
+    connect(danmakuWindow, SIGNAL(signalEternalBlockUser(QString,QString,QString)), this, SLOT(eternalBlockUser(QString,QString,QString)));
+    connect(danmakuWindow, SIGNAL(signalCancelEternalBlockUser(QString)), this, SLOT(cancelEternalBlockUser(QString)));
     connect(danmakuWindow, SIGNAL(signalShowPkVideo()), this, SLOT(on_actionShow_PK_Video_triggered()));
     connect(danmakuWindow, &LiveDanmakuWindow::signalChangeWindowMode, this, [=]{
         danmakuWindow->deleteLater();
@@ -1909,7 +2237,7 @@ void MainWindow::initDanmakuWindow()
         qInfo() << "发送PK对面消息：" << liveService->pkRoomId << msg;
         liveService->sendRoomMsg(liveService->pkRoomId, msg);
     });
-    connect(danmakuWindow, &LiveDanmakuWindow::signalMarkUser, this, [=](qint64 uid){
+    connect(danmakuWindow, &LiveDanmakuWindow::signalMarkUser, this, [=](UIDT uid){
         if (us->judgeRobot)
             liveService->markNotRobot(uid);
     });
@@ -1924,11 +2252,11 @@ void MainWindow::initDanmakuWindow()
         }
     });
     connect(danmakuWindow, &LiveDanmakuWindow::signalAddCloudShieldKeyword, this, &MainWindow::addCloudShieldKeyword);
-    connect(danmakuWindow, SIGNAL(signalAppointAdmin(qint64)), liveService, SLOT(appointAdmin(qint64)));
-    connect(danmakuWindow, SIGNAL(signalDismissAdmin(qint64)), liveService, SLOT(dismissAdmin(qint64)));
+    connect(danmakuWindow, SIGNAL(signalAppointAdmin(QString)), liveService, SLOT(appointAdmin(QString)));
+    connect(danmakuWindow, SIGNAL(signalDismissAdmin(QString)), liveService, SLOT(dismissAdmin(QString)));
     danmakuWindow->setEnableBlock(ui->enableBlockCheck->isChecked());
     danmakuWindow->setNewbieTip(ui->newbieTipCheck->isChecked());
-    danmakuWindow->setIds(ac->upUid.toLongLong(), ac->roomId.toLongLong());
+    danmakuWindow->setIds(ac->upUid, ac->roomId.toLongLong());
     danmakuWindow->setWindowIcon(this->windowIcon());
     danmakuWindow->setWindowTitle(this->windowTitle());
     danmakuWindow->hide();
@@ -1936,7 +2264,7 @@ void MainWindow::initDanmakuWindow()
     // PK中
     if (liveService->pkBattleType)
     {
-        danmakuWindow->setPkStatus(1, liveService->pkRoomId.toLongLong(), liveService->pkUid.toLongLong(), liveService->pkUname);
+        danmakuWindow->setPkStatus(1, liveService->pkRoomId.toLongLong(), liveService->pkUid, liveService->pkUname);
     }
 
     // 添加创建窗口之前的弹幕
@@ -1952,11 +2280,10 @@ void MainWindow::initDanmakuWindow()
             liveService->pullLiveDanmaku();
         }
         danmakuWindow->setAutoTranslate(ui->languageAutoTranslateCheck->isChecked());
-        danmakuWindow->setAIReply(us->AIReplyMsgLocal);
 
         if (liveService->pking)
         {
-            danmakuWindow->setIds(ac->upUid.toLongLong(), ac->roomId.toLongLong());
+            danmakuWindow->setIds(ac->upUid, ac->roomId.toLongLong());
         }
     });
 }
@@ -1968,12 +2295,15 @@ void MainWindow::initEvent()
     // 点歌
     connect(liveService, SIGNAL(signalNewDanmaku(const LiveDanmaku&)), this, SLOT(slotDiange(const LiveDanmaku&)));
 
+    // AI回复
+    connect(liveService, SIGNAL(signalNewDanmaku(const LiveDanmaku&)), this, SLOT(slotAIReply(const LiveDanmaku&)));
+
     // 滚屏
-    connect(liveService, &LiveRoomService::signalNewDanmaku, this, [=](const LiveDanmaku &danmaku){
+    connect(liveService, &LiveServiceBase::signalNewDanmaku, this, [=](const LiveDanmaku &danmaku){
         showScreenDanmaku(danmaku);
     });
 
-    connect(liveService, &LiveRoomService::signalNewDanmaku, this, [=](const LiveDanmaku &danmaku){
+    connect(liveService, &LiveServiceBase::signalNewDanmaku, this, [=](const LiveDanmaku &danmaku){
         if (danmaku.isPkLink()) // 大乱斗对面的弹幕不朗读
             return ;
 
@@ -1993,11 +2323,12 @@ void MainWindow::initEvent()
 
 void MainWindow::initCodeRunner()
 {
+    qInfo() << "初始化 CodeRunner";
     connect(cr, &CodeRunner::signalTriggerCmdEvent, this, [=](const QString& cmd, const LiveDanmaku& danmaku, bool debug) {
         triggerCmdEvent(cmd, danmaku, debug);
     });
 
-    connect(cr, &CodeRunner::signalLocalNotify, this, [=](const QString& text, qint64 uid) {
+    connect(cr, &CodeRunner::signalLocalNotify, this, [=](const QString& text, UIDT uid) {
         localNotify(text, uid);
     });
 
@@ -2015,6 +2346,7 @@ void MainWindow::initCodeRunner()
 
 void MainWindow::initWebServer()
 {
+    qInfo() << "初始化 WebService";
     webServer = new WebServer(this);
     webServer->wwwDir = QDir(rt->dataPath + "www");
     cr->setWebServer(webServer);
@@ -2022,6 +2354,7 @@ void MainWindow::initWebServer()
 
 void MainWindow::initVoiceService()
 {
+    qInfo() << "初始化 VoiceService";
     voiceService = new VoiceService(this);
     cr->setVoiceService(voiceService);
     connect(voiceService, &VoiceService::signalError, this, [=](QString title, QString msg) {
@@ -2031,6 +2364,7 @@ void MainWindow::initVoiceService()
 
 void MainWindow::initChatService()
 {
+    qInfo() << "初始化 ChatService";
     chatService = new ChatService(this);
     chatService->setLiveService(this->liveService);
 }
@@ -2314,6 +2648,22 @@ void MainWindow::switchPageAnimation(int page)
                              400, QEasingCurve::OutBack);
         }
     }
+    else if (page == PAGE_DATA)
+    {
+        QRect g(ui->dataCenterTopTabGroup->geometry());
+        startGeometryAni(ui->dataCenterTopTabGroup,
+                         QRect(g.center().x(), g.top(), 1, g.height()), g);
+
+        // 需要更新数据中心的显示数据
+        updateFansArchivesListView();
+        // 如果数据库还没加载，那么延迟5秒钟加载
+        if (!sqlService.isOpen())
+        {
+            QTimer::singleShot(3000, this, [=]{
+                updateFansArchivesListView();
+            });
+        }
+    }
     else if (page == PAGE_PREFENCE)
     {
         QRect g(ui->label_36->geometry());
@@ -2418,6 +2768,7 @@ void MainWindow::showEvent(QShowEvent *event)
 
         // 恢复窗口位置
         restoreGeometry(us->value("mainwindow/geometry").toByteArray());
+        ui->fansArchivesSplitter->restoreState(us->value("mainwindow/fansArchivesSplitterState").toByteArray());
 
         // 显示启动动画
         startSplash();
@@ -2436,7 +2787,14 @@ void MainWindow::showEvent(QShowEvent *event)
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     us->setValue("mainwindow/geometry", this->saveGeometry());
+    us->setValue("mainwindow/fansArchivesSplitterState", ui->fansArchivesSplitter->saveState());
     us->sync();
+
+    // 最后一个备份设置
+    if (!rt->dontBackupSettingFile)
+    {
+        copyFile(rt->dataPath + "settings.ini", rt->dataPath + "settings.ini.bak", true);
+    }
 
 #if defined(ENABLE_TRAY)
     if (!tray->isVisible())
@@ -2447,7 +2805,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
     event->ignore();
     this->hide();
-    QTimer::singleShot(5000, [=]{
+    QTimer::singleShot(5000, this, [=]{
         if (!this->isHidden())
             return ;
         us->setValue("mainwindow/autoShow", false);
@@ -2550,6 +2908,7 @@ void MainWindow::slotRoomInfoChanged()
     if (ui->roomNameLabel->text().isEmpty() || ui->roomNameLabel->text() != warmWish)
         ui->roomNameLabel->setText(ac->roomTitle);
     ui->upNameLabel->setText(ac->upName);
+    this->setWindowTitle(ac->upName + "：" + ac->roomTitle + " - " + ui->appNameLabel->text());
     setRoomDescription(ac->roomDescription);
     ui->roomAreaLabel->setText(ac->areaName);
     ui->popularityLabel->setText(snum(liveService->online));
@@ -2571,24 +2930,12 @@ void MainWindow::slotRoomInfoChanged()
     ui->watchedLabel->setText(ac->watchedShow);
 
     // 设置直播状态
-    if (ac->liveStatus == 0)
+    if (liveService->isLiving())
     {
-        ui->liveStatusButton->setText("未开播");
         if (us->timerConnectServer && !liveService->connectServerTimer->isActive())
             liveService->connectServerTimer->start();
     }
-    else if (ac->liveStatus == 1)
-    {
-        ui->liveStatusButton->setText("已开播");
-    }
-    else if (ac->liveStatus == 2)
-    {
-        ui->liveStatusButton->setText("轮播中");
-    }
-    else
-    {
-        ui->liveStatusButton->setText("未知状态" + snum(ac->liveStatus));
-    }
+    ui->liveStatusButton->setText(liveService->getLiveStatusStr());
 
     // 大乱斗信息
     ui->battleRankNameLabel->setText(ac->battleRankName);
@@ -2602,7 +2949,7 @@ void MainWindow::slotRoomInfoChanged()
     }
 
     if (danmakuWindow)
-        danmakuWindow->setIds(ac->upUid.toLongLong(), ac->roomId.toLongLong());
+        danmakuWindow->setIds(ac->upUid, ac->roomId.toLongLong());
 
     updatePermission();
 }
@@ -2613,12 +2960,12 @@ void MainWindow::slotRoomInfoChanged()
  */
 void MainWindow::slotTryBlockDanmaku(const LiveDanmaku &danmaku)
 {
-    const qint64 uid = danmaku.getUid();
+    const UIDT uid = danmaku.getUid();
     const QString& msg = danmaku.getText();
     const bool admin = danmaku.isAdmin();
     const int level = danmaku.getLevel();
     const int medal_level = danmaku.getMedalLevel();
-    const int danmuCount = us->danmakuCounts->value("danmaku/"+snum(uid), 0).toInt()+1;
+    const int danmuCount = us->danmakuCounts->value("danmaku/"+uid, 0).toInt()+1;
 
     bool blocked = false;
     auto testTipBlock = [&]{
@@ -2634,7 +2981,7 @@ void MainWindow::slotTryBlockDanmaku(const LiveDanmaku &danmaku)
             }
         }
     };
-    if (!us->debugPrint && (snum(uid) == ac->upUid || snum(uid) == ac->cookieUid)) // 是自己或UP主的，不屏蔽
+    if (!us->debugPrint && (uid == ac->upUid || uid == ac->cookieUid)) // 是自己或UP主的，不屏蔽
     {
         // 如果自动回复有对应的命令，则自动回复优先
         if (hasReply(msg))
@@ -2828,7 +3175,7 @@ void MainWindow::slotSendAttentionThank(const LiveDanmaku &danmaku)
 
 void MainWindow::slotNewGuardBuy(const LiveDanmaku &danmaku)
 {
-    const qint64 uid = danmaku.getUid();
+    const UIDT uid = danmaku.getUid();
     const QString& username = danmaku.getNickname();
 
     // 新船员数量事件
@@ -2840,7 +3187,7 @@ void MainWindow::slotNewGuardBuy(const LiveDanmaku &danmaku)
         }
     }
 
-    if (!danmaku.isFirst())
+    if (danmaku.isFirst())
     {
         triggerCmdEvent("FIRST_GUARD", danmaku, true);
     }
@@ -2884,7 +3231,7 @@ void MainWindow::localNotify(const QString &text)
     liveService->appendNewLiveDanmaku(LiveDanmaku(text));
 }
 
-void MainWindow::localNotify(const QString &text, qint64 uid)
+void MainWindow::localNotify(const QString &text, QString uid)
 {
     LiveDanmaku danmaku(text);
     danmaku.setUid(uid);
@@ -3001,7 +3348,7 @@ void MainWindow::on_testDanmakuButton_clicked()
         text = "测试弹幕";
     QRegularExpressionMatch match;
 
-    qint64 uid = 123;
+    UIDT uid = "123";
     int r = qrand() % 7 + 1;
     if (text.startsWith("$"))
     {
@@ -3056,7 +3403,7 @@ void MainWindow::on_testDanmakuButton_clicked()
     }
     else if (text == "测试醒目留言")
     {
-        LiveDanmaku danmaku("测试用户", "测试弹幕", 1001, 12, QDateTime::currentDateTime(), "", "", 39, "醒目留言", 1, 30);
+        LiveDanmaku danmaku("测试用户", "测试弹幕", "1001", 12, QDateTime::currentDateTime(), "", "", 39, "醒目留言", 1, 30);
         liveService->appendNewLiveDanmaku(danmaku);
     }
     else if (text == "测试消息")
@@ -3134,7 +3481,7 @@ void MainWindow::on_testDanmakuButton_clicked()
         if (ui->startLiveSendCheck->isChecked() && !text.trimmed().isEmpty())
             cr->sendAutoMsg(text, LiveDanmaku());
         ui->liveStatusButton->setText("已开播");
-        ac->liveStatus = 1;
+        liveService->liveStatus = 1;
         if (ui->timerConnectServerCheck->isChecked() && liveService->connectServerTimer->isActive())
             liveService->connectServerTimer->stop();
         slotStartWork(); // 每个房间第一次开始工作
@@ -3614,6 +3961,32 @@ void MainWindow::on_testDanmakuButton_clicked()
             musicWindow->slotSearchAndAutoAppend("5", "测试用户");
         }
     }
+    else if (text == "遍历JSON")
+    {
+        QString code = R"(
+{
+    "type": "回答",
+    "msg": "测试内容",
+    "tip":"这是测试内容",
+    "knowledge":[
+        {"name": "知识1", "content": "这是知识1的内容"},
+        {"name": "知识2","content": "这是知识2的内容"},
+        {"name": "知识3","content": "这是知识3的内容"}
+    ]
+}
+)";
+        LiveDanmaku danmaku("测试用户" + QString::number(r), text, uid, 12, QDateTime::currentDateTime(), "", "");
+        danmaku.extraJson = MyJson(code.toUtf8());
+        triggerCmdEvent("GPT_RESPONSE", danmaku);
+    }
+    else if (text == "测试代理")
+    {
+        on_proxyTestIPButton_clicked();
+    }
+    else if (text == "测试弹幕")
+    {
+        liveService->sendMsg("111122222");
+    }
     else
     {
         liveService->appendNewLiveDanmaku(LiveDanmaku("测试用户" + QString::number(r), text,
@@ -3636,27 +4009,31 @@ void MainWindow::on_roomIdEdit_editingFinished()
     // 关闭旧的
     if (liveService->liveSocket)
     {
-        ac->liveStatus = 0;
+        liveService->liveStatus = -1;
         if (liveService->liveSocket->state() != QAbstractSocket::UnconnectedState)
             liveService->liveSocket->abort();
     }
     ac->roomId = ui->roomIdEdit->text();
     ac->upUid = "";
-    us->setValue("danmaku/roomId", ac->roomId);
+    us->setValue("danmaku/roomId" + rt->getPlatformSuffix(), ac->roomId);
 
     releaseLiveData();
 
-    // 判断是身份码还是房间号
-    bool isPureRoomId = (ac->roomId.contains(QRegularExpression("^\\d+$")));
-
-    // 先解析身份码
-    if (!isPureRoomId)
+    // B站身份码
+    if (rt->livePlatform == Bilibili)
     {
-        ac->identityCode = ac->roomId;
-        ui->identityCodeEdit->setText(ac->identityCode);
-        us->set("live-open/identityCode", ac->identityCode);
-        startConnectIdentityCode();
-        return ;
+        // 判断是身份码还是房间号
+        bool isPureRoomId = (ac->roomId.contains(QRegularExpression("^\\d+$")));
+
+        // 先解析身份码
+        if (!isPureRoomId)
+        {
+            ac->identityCode = ac->roomId;
+            ui->identityCodeEdit->setText(ac->identityCode);
+            us->set("live-open/identityCode", ac->identityCode);
+            startConnectIdentityCode();
+            return ;
+        }
     }
 
     // 直接继续
@@ -3678,7 +4055,7 @@ void MainWindow::on_languageAutoTranslateCheck_stateChanged(int)
         danmakuWindow->setAutoTranslate(trans);
 }
 
-void MainWindow::on_tabWidget_tabBarClicked(int index)
+void MainWindow::onExtensionTabWidgetBarClicked(int index)
 {
     us->setValue("mainwindow/tabIndex", index);
     if (index > 2)
@@ -3699,12 +4076,11 @@ void MainWindow::on_SendMsgButton_clicked()
 
 void MainWindow::on_AIReplyCheck_stateChanged(int)
 {
-    us->AIReplyMsgLocal = ui->AIReplyCheck->isChecked();
-    us->setValue("danmaku/aiReply", us->AIReplyMsgLocal);
-    if (danmakuWindow)
-        danmakuWindow->setAIReply(us->AIReplyMsgLocal);
+    us->AIReplyMsgEnabled = ui->AIReplyCheck->isChecked();
+    us->setValue("danmaku/aiReply", us->AIReplyMsgEnabled);
 
-    ui->AIReplyMsgCheck->setEnabled(us->AIReplyMsgLocal);
+    ui->AIReplyMsgCheck->setEnabled(us->AIReplyMsgEnabled);
+    ui->GPTAnalysisCheck->setEnabled(us->AIReplyMsgEnabled);
 }
 
 void MainWindow::on_testDanmakuEdit_returnPressed()
@@ -3722,9 +4098,22 @@ void MainWindow::on_SendMsgEdit_returnPressed()
     ui->SendMsgEdit->clear();
 }
 
+#define CONNECT_SHOW_CODE_GUI_EDITOR(tw) \
+    connect(tw, &ListItemInterface::signalShowCodeGUIEditor, this, [=]{ \
+        CodeGUIEditor* editor = new CodeGUIEditor(this); \
+        editor->setCode(tw->getCode()); \
+        editor->exec(); \
+        if (editor->result() == QDialog::Accepted) \
+        { \
+            tw->setCode(editor->toString()); \
+        } \
+        editor->deleteLater(); \
+    });
+
 TaskWidget* MainWindow::addTimerTask(bool enable, int second, QString text, int index)
 {
     TaskWidget* tw = new TaskWidget(this);
+    CONNECT_SHOW_CODE_GUI_EDITOR(tw);
     QListWidgetItem* item;
 
     if (index == -1)
@@ -3838,6 +4227,18 @@ void MainWindow::saveTaskList()
 
 void MainWindow::restoreTaskList()
 {
+    // 清空
+    for (int i = 0; i < ui->taskListWidget->count(); i++)
+    {
+        auto item = ui->taskListWidget->item(i);
+        auto widget = ui->taskListWidget->itemWidget(item);
+        auto tw = static_cast<TaskWidget*>(widget);
+        tw->deleteLater();
+        ui->taskListWidget->removeItemWidget(item);
+        ui->taskListWidget->takeItem(i);
+    }
+
+    // 读取
     int count = us->value("task/count", 0).toInt();
     for (int row = 0; row < count; row++)
     {
@@ -3851,6 +4252,7 @@ void MainWindow::restoreTaskList()
 ReplyWidget* MainWindow::addAutoReply(bool enable, QString key, QString reply, int index)
 {
     ReplyWidget* rw = new ReplyWidget(this);
+    CONNECT_SHOW_CODE_GUI_EDITOR(rw);
     QListWidgetItem* item;
 
     if (index == -1)
@@ -3971,6 +4373,18 @@ void MainWindow::saveReplyList()
 
 void MainWindow::restoreReplyList()
 {
+    // 清空
+    for (int i = 0; i < ui->replyListWidget->count(); i++)
+    {
+        auto item = ui->replyListWidget->item(i);
+        auto widget = ui->replyListWidget->itemWidget(item);
+        auto tw = static_cast<ReplyWidget*>(widget);
+        tw->deleteLater();
+        ui->replyListWidget->removeItemWidget(item);
+        ui->replyListWidget->takeItem(i);
+    }
+
+    // 读取
     int count = us->value("reply/count", 0).toInt();
     for (int row = 0; row < count; row++)
     {
@@ -4076,6 +4490,7 @@ void MainWindow::addListItemOnCurrentPage()
 EventWidget* MainWindow::addEventAction(bool enable, QString cmd, QString action, int index)
 {
     EventWidget* rw = new EventWidget(this);
+    CONNECT_SHOW_CODE_GUI_EDITOR(rw);
     QListWidgetItem* item;
 
     if (index == -1)
@@ -4202,6 +4617,18 @@ void MainWindow::saveEventList()
 
 void MainWindow::restoreEventList()
 {
+    // 清空
+    for (int i = 0; i < ui->eventListWidget->count(); i++)
+    {
+        auto item = ui->eventListWidget->item(i);
+        auto widget = ui->eventListWidget->itemWidget(item);
+        auto tw = static_cast<EventWidget*>(widget);
+        tw->deleteLater();
+        ui->eventListWidget->removeItemWidget(item);
+        ui->eventListWidget->takeItem(i);
+    }
+
+    // 读取
     int count = us->value("event/count", 0).toInt();
     for (int row = 0; row < count; row++)
     {
@@ -4370,32 +4797,40 @@ void MainWindow::addCodeSnippets(const QJsonDocument &doc)
     adjustPageSize(PAGE_EXTENSION);
 }
 
+/// 用户手动更改了cookie
 void MainWindow::autoSetCookie(const QString &s)
 {
-    us->setValue("danmaku/browserCookie", ac->browserCookie = s);
+    us->setValue("danmaku/browserCookie" + rt->getPlatformSuffix(), ac->browserCookie = s);
     if (ac->browserCookie.isEmpty())
+    {
+        ac->userCookies = QVariant();
+        qInfo() << "清空Cookie";
         return ;
+    }
 
     ac->userCookies = getCookies();
     QTimer::singleShot(10, [=]{
         liveService->getCookieAccount();
     });
 
-    // 自动设置弹幕格式
-    int posl = ac->browserCookie.indexOf("bili_jct=") + 9;
-    if (posl == -1)
-        return ;
-    int posr = ac->browserCookie.indexOf(";", posl);
-    if (posr == -1) posr = ac->browserCookie.length();
-    ac->csrf_token = ac->browserCookie.mid(posl, posr - posl);
-    qInfo() << "检测到csrf_token:" << ac->csrf_token;
+    if (rt->livePlatform == Bilibili)
+    {
+        // 自动设置弹幕格式
+        int posl = ac->browserCookie.indexOf("bili_jct=") + 9;
+        if (posl == -1)
+            return ;
+        int posr = ac->browserCookie.indexOf(";", posl);
+        if (posr == -1) posr = ac->browserCookie.length();
+        ac->csrf_token = ac->browserCookie.mid(posl, posr - posl);
+        qInfo() << "检测到csrf_token:" << ac->csrf_token;
 
-    if (ac->browserData.isEmpty())
-        ac->browserData = "color=4546550&fontsize=25&mode=4&msg=&rnd=1605156247&roomid=&bubble=5&csrf_token=&csrf=";
-    ac->browserData.replace(QRegularExpression("csrf_token=[^&]*"), "csrf_token=" + ac->csrf_token);
-    ac->browserData.replace(QRegularExpression("csrf=[^&]*"), "csrf=" + ac->csrf_token);
-    us->setValue("danmaku/browserData", ac->browserData);
-    qInfo() << "设置弹幕格式：" << ac->browserData;
+        if (ac->browserData.isEmpty())
+            ac->browserData = "color=4546550&fontsize=25&mode=4&msg=&rnd=1605156247&roomid=&bubble=5&csrf_token=&csrf=";
+        ac->browserData.replace(QRegularExpression("csrf_token=[^&]*"), "csrf_token=" + ac->csrf_token);
+        ac->browserData.replace(QRegularExpression("csrf=[^&]*"), "csrf=" + ac->csrf_token);
+        us->setValue("danmaku/browserData", ac->browserData);
+        qInfo() << "设置弹幕格式：" << ac->browserData;
+    }
 }
 
 QVariant MainWindow::getCookies() const
@@ -4418,6 +4853,86 @@ QVariant MainWindow::getCookies() const
     QVariant var;
     var.setValue(cookies);
     return var;
+}
+
+void MainWindow::saveSubAccount()
+{
+    us->setValue("subAccount/count", us->subAccounts.size());
+    for (int i = 0; i < us->subAccounts.size(); i++)
+    {
+        auto subAccount = us->subAccounts[i];
+        us->setValue("subAccount/r" + QString::number(i) + "/uid", subAccount.uid);
+        us->setValue("subAccount/r" + QString::number(i) + "/nickname", subAccount.nickname);
+        us->setValue("subAccount/r" + QString::number(i) + "/cookie", subAccount.cookie);
+        us->setValue("subAccount/r" + QString::number(i) + "/loginTime", subAccount.loginTime);
+    }
+    qInfo() << "保存子账号" << us->subAccounts.size() << "个";
+}
+
+void MainWindow::restoreSubAccount()
+{
+    // 清空
+    us->subAccounts.clear();
+
+    // 读取
+    int count = us->value("subAccount/count", 0).toInt();
+    for (int i = 0; i < count; i++)
+    {
+        SubAccount subAccount;
+        subAccount.uid = us->value("subAccount/r" + QString::number(i) + "/uid").toString();
+        subAccount.nickname = us->value("subAccount/r" + QString::number(i) + "/nickname").toString();
+        subAccount.cookie = us->value("subAccount/r" + QString::number(i) + "/cookie").toString();
+        subAccount.loginTime = us->value("subAccount/r" + QString::number(i) + "/loginTime").toLongLong();
+        us->subAccounts.append(subAccount);
+    }
+    qInfo() << "恢复子账号" << us->subAccounts.size() << "个";
+    updateSubAccount();
+}
+
+void MainWindow::updateSubAccount()
+{
+    ui->subAccountTableWidget->clear();
+    ui->subAccountTableWidget->setColumnCount(5);
+    ui->subAccountTableWidget->setHorizontalHeaderLabels(QStringList() << "序号" << "UID" << "昵称" << "时间" << "状态");
+    ui->subAccountTableWidget->setRowCount(us->subAccounts.size());
+    ui->subAccountTableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    for (int i = 0; i < us->subAccounts.size(); i++)
+    {
+        auto subAccount = us->subAccounts[i];
+        ui->subAccountTableWidget->setItem(i, 0, new QTableWidgetItem(snum(i + 1)));
+        ui->subAccountTableWidget->setItem(i, 1, new QTableWidgetItem(subAccount.uid));
+        ui->subAccountTableWidget->setItem(i, 2, new QTableWidgetItem(subAccount.nickname));
+        ui->subAccountTableWidget->setItem(i, 3, new QTableWidgetItem(QDateTime::fromSecsSinceEpoch(subAccount.loginTime).toString("yyyy-MM-dd HH:mm:ss")));
+        ui->subAccountTableWidget->setItem(i, 4, new QTableWidgetItem(subAccount.status));
+    }
+}
+
+/**
+ * 按顺序更新账号的信息
+ */
+void MainWindow::refreshUndetectedSubAccount()
+{
+    // 查找第一个没有检测过的
+    int firstIndex = -1;
+    for (int i = 0; i < us->subAccounts.size(); i++)
+    {
+        if (!us->subAccounts[i].hasDetected)
+        {
+            firstIndex = i;
+            break;
+        }
+    }
+
+    if (firstIndex == -1)
+    {
+        qInfo() << "所有子账号可用性检查完毕";
+        _flag_detectingAllSubAccount = false;
+        ui->refreshSubAccountButton->setEnabled(true);
+        return ;
+    }
+
+    // 更新账号信息
+    liveService->getAccountByCookie(us->subAccounts[firstIndex].cookie);
 }
 
 QString MainWindow::getDomainPort() const
@@ -4666,6 +5181,289 @@ void MainWindow::slotDiange(const LiveDanmaku &danmaku)
     }
 }
 
+void MainWindow::slotAIReply(const LiveDanmaku &danmaku, bool manual)
+{
+    if (rt->justStart || !us->AIReplyMsgEnabled)
+        return ;
+    
+    const auto isValidDanmaku = [=](const LiveDanmaku& danmaku, int similarIndex) -> bool{
+        Q_ASSERT(similarIndex >= 0);
+        // 无效消息
+        if (danmaku.getUid().isEmpty() || danmaku.getText().isEmpty())
+            return false;
+        //  不能回复的消息
+        if (!danmaku.is(MSG_DANMAKU) || danmaku.isPkLink())
+            return false;
+        // 无需回复的消息
+        if (!manual && (us->notReplyUsers.contains(danmaku.getUid()) || danmaku.isNoReply()))
+            return false;
+        // 不回复自己的消息
+        if (!us->AIReplySelf && danmaku.getUid() == ac->cookieUid)
+            return false;
+        
+        // 判断内容
+        QString msg = danmaku.getText();
+        if (!manual)
+        {
+            // 判断过滤器
+            if (cr->isFilterRejected("FILTER_AI_REPLY", danmaku))
+            {
+                qInfo() << "不自动回复弹幕：" << danmaku.getText();
+                return false;
+            }
+
+            if (similarIndex > 0)
+            {
+                // 过滤重复消息
+                bool repeat = false;
+                int count = us->danmuSimilarJudgeCount;
+                for (int i = rt->allDanmakus.size() - similarIndex; i >= 0; i--)
+                {
+                    const LiveDanmaku& danmaku = rt->allDanmakus.at(i);
+                    if (!danmaku.is(MessageType::MSG_DANMAKU))
+                        continue;
+                    if (!us->useStringSimilar)
+                    {
+                        if (danmaku.getText() == msg)
+                        {
+                            repeat = true;
+                            qDebug() << "重复弹幕：" << danmaku.getText();
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        double similar = StringDistanceUtil::getSimilarity(danmaku.getText(), msg);
+                        if (similar >= us->stringSimilarThreshold)
+                        {
+                            qInfo() << "相似度：" << similar << " 相对于 “" << danmaku.getText() << "”";
+                            repeat = true;
+                            break;
+                        }
+                    }
+                    if (--count <= 0)
+                        break;
+                }
+
+                if (repeat)
+                {
+                    qInfo() << "AI回复：忽略重复的弹幕";
+                    return false;
+                }
+            }
+
+            // 【自动回复】功能中已经有针对该功能的回复了，比如签到等
+            if (hasReply(msg))
+            {
+                qInfo() << "AI回复：忽略指定处理的回复";
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    // 开始回复
+    if (us->chatgpt_analysis) // AI分析
+    {
+        static const int ANALYZE_MAX_COUNT = 100;
+        static qint64 lastTime = 0;
+        static LiveDanmaku lastDanmaku;
+        static LiveDanmaku waitDanmaku;
+        static bool waiting = false;
+
+        static auto clearWaiting = [&] {
+            waitDanmaku = LiveDanmaku();
+            waiting = false;
+        };
+
+        // 等待机制
+        if (chatService->isAnalyzing())
+        {
+            if (isValidDanmaku(danmaku, 0))
+            {
+                qDebug() << "AI分析：等待中..." << danmaku.toString();
+                waiting = true;
+                waitDanmaku = danmaku;
+            }
+            return;
+        }
+        waiting = false;
+        waitDanmaku = LiveDanmaku();
+
+        if (!isValidDanmaku(danmaku, 0))
+            return;
+
+        // 获取上次分析之后的弹幕
+        QStringList args;
+        QList<LiveDanmaku> targetDanmakus;
+        for (int i = rt->allDanmakus.size() - 1; i >= 0; i--)
+        {
+            const LiveDanmaku& dmk = rt->allDanmakus.at(i);
+            qint64 tm = dmk.getTimeline().toSecsSinceEpoch();
+            if (tm != 0 && tm < lastTime) // 时间并不精确，因为精确到秒
+                break;
+            if (dmk == lastDanmaku)
+                break;
+            if (!dmk.is(MessageType::MSG_DANMAKU))
+                continue;
+            if (!isValidDanmaku(dmk, 0))
+                continue;
+            args.insert(0, QString("%1: %2").arg(dmk.getNickname()).arg(dmk.getText()));
+            targetDanmakus.append(dmk);
+            if (args.size() >= ANALYZE_MAX_COUNT)
+                break;
+        }
+
+        if (args.isEmpty())
+        {
+            qWarning() << "AI分析：没有可分析的弹幕";
+            clearWaiting();
+            return;
+        }
+        lastDanmaku = targetDanmakus.last();
+        lastTime = lastDanmaku.getTimestamp();
+        qDebug() << "AI分析.弹幕：" << args.size() << args << QDateTime::fromSecsSinceEpoch(lastTime);
+        
+        // AI
+        chatService->analyze(args, [=](QString answer){
+            if (answer.isEmpty())
+            {
+                qWarning() << "AI分析回答为空";
+                return ;
+            }
+
+            /// 解析JSON
+            if (!answer.startsWith("{") && !answer.startsWith("["))
+            {
+                QRegularExpression leftRe("\\[|\\{");
+                int index = answer.indexOf(leftRe);
+                if (index > -1)
+                {
+                    answer = answer.right(answer.length() - index);
+                }
+                else
+                {
+                    qWarning() << "无法确定JSON数据开头：" << answer;
+                }
+            }
+            if (!answer.endsWith("]") && !answer.endsWith("}"))
+            {
+                QRegularExpression rightRe("\\}|\\]");
+                int index = answer.lastIndexOf(rightRe);
+                if (index > -1)
+                {
+                    answer = answer.left(index + 1);
+                }
+                else
+                {
+                    qWarning() << "无法确定JSON数据结尾：" << answer;
+                }
+            }
+
+            // 处理结果
+            auto processOne = [=](const MyJson& json, const LiveDanmaku& targetDanmaku){
+                qDebug() << "AI分析.结果：" << targetDanmaku.toString() << json;
+                // 内置的一些AI功能
+                // 主播正在做什么。如果有多条，那么后面的会覆盖前面的
+                if (json.contains("live_content"))
+                {
+                    liveService->setLiveContent(json["live_content"].toString());
+                }
+                
+                // 使用用户自定义的AI回复
+                LiveDanmaku dmk = targetDanmaku;
+                dmk.setAIReply(answer);
+                triggerCmdEvent(GPT_TASK_RESPONSE_EVENT, dmk.with(json));
+            };
+            
+            if (answer.startsWith("["))
+            {
+                QJsonArray array = QJsonDocument::fromJson(answer.toUtf8()).array();
+                if (array.isEmpty())
+                {
+                    qWarning() << "无法解析的GPT分析数组：" << answer;
+                    return;
+                }
+                int minCount = qMin(array.size(), targetDanmakus.size());
+                if (array.size() != targetDanmakus.size())
+                {
+                    qWarning() << "GPT分析数组与弹幕数量不符：回复" << array.size() << " != 目标" << targetDanmakus.size();
+                    return;
+                }
+                for (int i = 0; i < minCount; i++)
+                {
+                    processOne(array[i].toObject(), targetDanmakus.at(i));
+                }
+            }
+            else if (answer.startsWith("{"))
+            {
+                MyJson json(answer.toUtf8());
+                if (json.isEmpty())
+                {
+                    qWarning() << "无法解析的GPT分析对象：" << answer;
+                    return;
+                }
+                processOne(json, danmaku);
+            }
+
+            // 继续下一波分析
+            QTimer::singleShot(1000, this, [=]{
+                if (waiting && !chatService->isAnalyzing())
+                {
+                    qDebug() << "AI分析.继续下一波  " << waitDanmaku.toString() ;
+                    slotAIReply(waitDanmaku, manual);
+                }
+            });
+        });
+    }
+    else // 单纯的聊天
+    {
+        if (!isValidDanmaku(danmaku, 2))
+            return;
+        
+        chatService->chat(danmaku.getUid(), danmaku.getText(), [=](QString answer){
+            if (answer.isEmpty())
+                return ;
+
+            qInfo() << "回复：" << danmaku.getText() << " => " << answer;
+
+            if (us->AIReplyMsgSend) // 发送弹幕
+            {
+                UIDT uid = danmaku.getUid();
+                // 机器人自动发送的不回复（不然自己和自己打起来了）
+                if (uid == ac->cookieUid && cr->noReplyMsgs.contains(answer))
+                    return ;
+
+                // 过滤器
+                LiveDanmaku dmk = danmaku;
+                dmk.setAIReply(answer);
+                if (cr->isFilterRejected("FILTER_AI_REPLY_MSG", dmk))
+                {
+                    qInfo() << "过滤器已阻止AI回复：" << dmk.getText() << dmk.getAIReply();
+                    return;
+                }
+
+                // AI回复长度上限，以及过滤
+                if (us->AIReplyMsgSend == 1 && answer.length() > ac->danmuLongest)
+                    return ;
+
+                // 自动断句
+                qInfo() << "发送AI回复：" << answer;
+                QStringList sl = liveService->splitLongDanmu(answer, ac->danmuLongest);
+                cr->sendAutoMsg(sl.join("\\n"), danmaku);
+            }
+            else // 本地显示
+            {
+                if (danmakuWindow && !danmakuWindow->isHidden())
+                {
+                    danmakuWindow->setItemReply(danmaku, answer);
+                }                
+            }
+        });
+    }
+}
+
 void MainWindow::slotSocketError(QAbstractSocket::SocketError error)
 {
     showError("socket", liveService->liveSocket->errorString());
@@ -4676,24 +5474,32 @@ void MainWindow::slotSocketError(QAbstractSocket::SocketError error)
  */
 void MainWindow::startConnectIdentityCode()
 {
-    MyJson json;
-    json.insert("code", ac->identityCode); // 主播身份码
-    json.insert("app_id", (qint64)BILI_APP_ID);
-    /* liveOpenService->post(BILI_API_DOMAIN + "/v2/app/start", json, [=](MyJson json){
-        if (json.code() != 0)
-        {
-            showError("解析身份码出错", snum(json.code()) + " " + json.msg());
-            return ;
-        }
+    if (rt->livePlatform == Bilibili)
+    {
+        MyJson json;
+        json.insert("code", ac->identityCode); // 主播身份码
+        json.insert("app_id", (qint64)BILI_APP_ID);
+        /* liveOpenService->post(BILI_API_DOMAIN + "/v2/app/start", json, [=](MyJson json){
+            if (json.code() != 0)
+            {
+                showError("解析身份码出错", snum(json.code()) + " " + json.msg());
+                return ;
+            }
 
-        auto data = json.data();
-        auto anchor = data.o("anchor_info");
-        qint64 roomId = anchor.l("room_id");
+            auto data = json.data();
+            auto anchor = data.o("anchor_info");
+            qint64 roomId = anchor.l("room_id");
 
-        // 通过房间号连接
-        ui->roomIdEdit->setText(snum(roomId));
-        on_roomIdEdit_editingFinished();
-    }); */
+            // 通过房间号连接
+            ui->roomIdEdit->setText(snum(roomId));
+            on_roomIdEdit_editingFinished();
+        }); */
+    }
+    else
+    {
+        QMessageBox::warning(this, "官方连接渠道", "当前平台暂不支持该接口");
+    }
+
 }
 
 void MainWindow::startConnectRoom()
@@ -4702,26 +5508,31 @@ void MainWindow::startConnectRoom()
         return ;
 
     // 判断是身份码还是房间号
-    bool isPureRoomId = (ac->roomId.contains(QRegularExpression("^\\d+$")));
-    if (!isPureRoomId)
+    if (rt->livePlatform == Bilibili)
     {
-        QTimer::singleShot(10, this, [=]{
-            liveService->startConnectIdentityCode(ac->identityCode);
-        });
-        return ;
+        bool isPureRoomId = (ac->roomId.contains(QRegularExpression("^\\d+$")));
+        if (!isPureRoomId)
+        {
+            QTimer::singleShot(10, this, [=]{
+                liveService->startConnectIdentityCode(ac->identityCode);
+            });
+            return ;
+        }
     }
 
     // 初始化主播数据
     ac->currentFans = 0;
     ac->currentFansClub = 0;
-    liveService->popularVal = 2;
+    liveService->popularVal = 0;
 
     // 准备房间数据
+    QString fileRoomId = ac->roomId;
+    fileRoomId.replace(QRegularExpression("\\w+?://"), "");
     if (us->danmakuCounts)
         us->danmakuCounts->deleteLater();
     QDir dir;
     dir.mkdir(rt->dataPath+"danmaku_counts");
-    us->danmakuCounts = new QSettings(rt->dataPath+"danmaku_counts/" + ac->roomId + ".ini", QSettings::Format::IniFormat);
+    us->danmakuCounts = new QSettings(rt->dataPath+"danmaku_counts/" + fileRoomId + ".ini", QSettings::Format::IniFormat);
     if (us->calculateDailyData)
         liveService->startCalculateDailyData();
 
@@ -4739,98 +5550,102 @@ void MainWindow::startConnectRoom()
 
 void MainWindow::updatePermission()
 {
-    qInfo() << "当前信息：房间=" << ac->roomId << "  主播ID=" << ac->upUid << "  机器人ID=" << ac->cookieUid;
-    static int retry_count = 0;
-    permissionLevel = 0;
-    if (liveService->gettingRoom || liveService->gettingUser)
-    {
-        qDebug() << "仍在获取信息：room=" << liveService->gettingRoom << ", user=" << liveService->gettingUser;
-        QTimer::singleShot(5000, this, [=]{
-            if (++retry_count > 3)
+    debounce->call("updatePermission"_shash, this, [=]{
+        qInfo() << "当前信息：房间=" << ac->roomId << "  主播ID=" << ac->upUid << "  机器人ID=" << ac->cookieUid;
+        static int retry_count = 0;
+        permissionLevel = 0;
+        if (liveService->gettingRoom || liveService->gettingUser)
+        {
+            qDebug() << "仍在获取信息：room=" << liveService->gettingRoom << ", user=" << liveService->gettingUser;
+            QTimer::singleShot(5000, this, [=]{
+                if (++retry_count > 3)
+                {
+                    retry_count = 0;
+                    return;
+                }
+                qDebug() << "尝试刷新信息" << retry_count;
+                updatePermission();
+            });
+            return ;
+        }
+        QString userId = ac->cookieUid;
+        get(serverPath + "pay/isVip", {"room_id", ac->roomId, "user_id", userId}, [=](MyJson json) {
+            MyJson jdata = json.data();
+            qint64 timestamp = QDateTime::currentSecsSinceEpoch();
+            qint64 deadline = 0;
+            if (!jdata.value("RR").isNull())
             {
-                retry_count = 0;
-                return;
+                MyJson info = jdata.o("RR");
+                if (info.l("deadline") > timestamp && !info.value("roomId").isNull() && !info.value("robotId").isNull())
+                {
+                    permissionLevel = qMax(permissionLevel, info.i("vipLevel"));
+                    deadline = qMax(deadline, info.l("deadline"));
+                    permissionType[1] = true;
+                }
             }
-            qDebug() << "尝试刷新信息" << retry_count;
-            updatePermission();
+            if (!jdata.value("ROOM").isNull())
+            {
+                MyJson info = jdata.o("ROOM");
+                if (info.l("deadline") > timestamp && !info.value("roomId").isNull())
+                {
+                    permissionLevel = qMax(permissionLevel, info.i("vipLevel"));
+                    deadline = qMax(deadline, info.l("deadline"));
+                    permissionType[2] = true;
+                }
+            }
+            if (!jdata.value("ROBOT").isNull())
+            {
+                MyJson info = jdata.o("ROBOT");
+                if (info.l("deadline") > timestamp && !info.value("robotId").isNull())
+                {
+                    permissionLevel = qMax(permissionLevel, info.i("vipLevel"));
+                    deadline = qMax(deadline, info.l("deadline"));
+                    permissionType[3] = true;
+                }
+            }
+            if (!jdata.value("GIFT").isNull())
+            {
+                MyJson info = jdata.o("GIFT");
+                if (info.l("deadline") > timestamp)
+                {
+                    permissionLevel = qMax(permissionLevel, info.i("vipLevel"));
+                    deadline = qMax(deadline, info.l("deadline"));
+                    permissionType[10] = true;
+                }
+            }
+
+            this->permissionDeadline = deadline;
+            if (permissionLevel)
+            {
+                ui->droplight->setText(permissionText);
+                ui->droplight->adjustMinimumSize();
+                ui->droplight->setNormalColor(themeSbg);
+                ui->droplight->setTextColor(themeSfg);
+                ui->droplight->setToolTip("剩余时长：" + snum((deadline - timestamp) / (24 * 3600)) + "天");
+                ui->vipExtensionButton->hide();
+                ui->vipDatabaseButton->hide();
+                ui->heartTimeSpin->setMaximum(1440); // 允许挂机24小时
+
+                qint64 tm = deadline - timestamp;
+                if (tm > 24 * 3600)
+                    tm = 24 * 3600;
+                permissionTimer->setInterval(tm * 1000);
+                permissionTimer->start();
+            }
+            else
+            {
+                ui->droplight->setText("免费版");
+                ui->droplight->setNormalColor(Qt::white);
+                ui->droplight->setTextColor(Qt::black);
+                ui->droplight->setToolTip("点击解锁新功能");
+                ui->vipExtensionButton->show();
+                ui->vipDatabaseButton->show();
+                ui->heartTimeSpin->setMaximum(120); // 仅允许刚好获取完小心心
+                permissionTimer->stop();
+            }
+
+            readConfig2();
         });
-        return ;
-    }
-    QString userId = ac->cookieUid;
-    get(serverPath + "pay/isVip", {"room_id", ac->roomId, "user_id", userId}, [=](MyJson json) {
-        MyJson jdata = json.data();
-        qint64 timestamp = QDateTime::currentSecsSinceEpoch();
-        qint64 deadline = 0;
-        if (!jdata.value("RR").isNull())
-        {
-            MyJson info = jdata.o("RR");
-            if (info.l("deadline") > timestamp)
-            {
-                permissionLevel = qMax(permissionLevel, info.i("vipLevel"));
-                deadline = qMax(deadline, info.l("deadline"));
-                permissionType[1] = true;
-            }
-        }
-        if (!jdata.value("ROOM").isNull())
-        {
-            MyJson info = jdata.o("ROOM");
-            if (info.l("deadline") > timestamp)
-            {
-                permissionLevel = qMax(permissionLevel, info.i("vipLevel"));
-                deadline = qMax(deadline, info.l("deadline"));
-                permissionType[2] = true;
-            }
-        }
-        if (!jdata.value("ROBOT").isNull())
-        {
-            MyJson info = jdata.o("ROBOT");
-            if (info.l("deadline") > timestamp)
-            {
-                permissionLevel = qMax(permissionLevel, info.i("vipLevel"));
-                deadline = qMax(deadline, info.l("deadline"));
-                permissionType[3] = true;
-            }
-        }
-        if (!jdata.value("GIFT").isNull())
-        {
-            MyJson info = jdata.o("GIFT");
-            if (info.l("deadline") > timestamp)
-            {
-                permissionLevel = qMax(permissionLevel, info.i("vipLevel"));
-                deadline = qMax(deadline, info.l("deadline"));
-                permissionType[10] = true;
-            }
-        }
-
-        this->permissionDeadline = deadline;
-        if (permissionLevel)
-        {
-            ui->droplight->setText(permissionText);
-            ui->droplight->adjustMinimumSize();
-            ui->droplight->setNormalColor(themeSbg);
-            ui->droplight->setTextColor(themeSfg);
-            ui->droplight->setToolTip("剩余时长：" + snum((deadline - timestamp) / (24 * 3600)) + "天");
-            ui->vipExtensionButton->hide();
-            ui->heartTimeSpin->setMaximum(1440); // 允许挂机24小时
-
-            qint64 tm = deadline - timestamp;
-            if (tm > 24 * 3600)
-                tm = 24 * 3600;
-            permissionTimer->setInterval(tm * 1000);
-            permissionTimer->start();
-        }
-        else
-        {
-            ui->droplight->setText("免费版");
-            ui->droplight->setNormalColor(Qt::white);
-            ui->droplight->setTextColor(Qt::black);
-            ui->droplight->setToolTip("点击解锁新功能");
-            ui->vipExtensionButton->show();
-            ui->heartTimeSpin->setMaximum(120); // 仅允许刚好获取完小心心
-            permissionTimer->stop();
-        }
-
-        readConfig2();
     });
 }
 
@@ -4841,6 +5656,7 @@ int MainWindow::hasPermission()
 
 void MainWindow::setRoomCover(const QPixmap& pixmap)
 {
+    qInfo() << "更新房间封面";
     liveService->roomCover = pixmap; // 原图
     if (liveService->roomCover.isNull())
         return ;
@@ -4856,8 +5672,8 @@ void MainWindow::setRoomCover(const QPixmap& pixmap)
 
     // 设置程序主题
     QColor bg, fg, sbg, sfg;
-    auto colors = ColorOctreeUtil::extractImageThemeColors(liveService->roomCover.toImage(), 7);
-    ColorOctreeUtil::getBgFgSgColor(colors, &bg, &fg, &sbg, &sfg);
+    auto colors = ImageUtil::extractImageThemeColors(liveService->roomCover.toImage(), 7);
+    ImageUtil::getBgFgSgColor(colors, &bg, &fg, &sbg, &sfg);
     prevPa = BFSColor::fromPalette(palette());
     currentPa = BFSColor(QList<QColor>{bg, fg, sbg, sfg});
     QPropertyAnimation* ani = new QPropertyAnimation(this, "paletteProg");
@@ -4913,10 +5729,15 @@ void MainWindow::setRoomThemeByCover(double val)
     ui->menubar->setStyleSheet("QMenuBar:item{background:transparent;}QMenuBar{background:transparent; color:"+QVariant(fg).toString()+"}");
     roomIdBgWidget->setStyleSheet("#roomIdBgWidget{ background: " + QVariant(themeSbg).toString() + "; border-radius: " + snum(roomIdBgWidget->height()/2) + "px; }");
     sideButtonList.at(ui->stackedWidget->currentIndex())->setNormalColor(sbg);
-    ui->tagsButtonGroup->setMouseColor([=]{QColor c = themeSbg; c.setAlpha(127); return c;}(),
-                                       [=]{QColor c = themeSbg; c.setAlpha(255); return c;}());
+    ui->tagsButtonGroup->setColors(Qt::lightGray,
+                [=]{QColor c = themeSbg; c.setAlpha(127); return c;}(),
+                [=]{QColor c = themeSbg; c.setAlpha(255); return c;}(),
+                [=]{QColor c = themeSbg; c.setAlpha(127); return c;}(),
+                Qt::black);
     thankTabButtons.at(ui->thankStackedWidget->currentIndex())->setNormalColor(sbg);
     thankTabButtons.at(ui->thankStackedWidget->currentIndex())->setTextColor(sfg);
+    dataCenterTabButtons.at(ui->dataCenterStackedWidget->currentIndex())->setNormalColor(sbg);
+    dataCenterTabButtons.at(ui->dataCenterStackedWidget->currentIndex())->setTextColor(sfg);
     ui->showLiveDanmakuWindowButton->setBgColor(sbg);
     ui->showLiveDanmakuWindowButton->setTextColor(sfg);
     ui->SendMsgButton->setTextColor(fg);
@@ -5765,6 +6586,7 @@ void MainWindow::showScreenDanmaku(const LiveDanmaku &danmaku)
         sx = right - label->width();
         ex = left;
     }
+qDebug() << "计算sx" << right << label->width() << sx << ex;
 
     // 避免重叠
     auto isOverlap = [=](int x, int y, int height){
@@ -5784,7 +6606,7 @@ void MainWindow::showScreenDanmaku(const LiveDanmaku &danmaku)
         if (++forCount >= 32) // 最多循环32遍（如果弹幕极多，可能会必定叠在一起）
             break;
     } while (isOverlap(sx, y, label->height()));
-
+    qDebug() << "坐标位置：" << sx << "->" << ex << "屏幕大小：" << rect;
     label->move(QPoint(sx, y));
     screenLabels.append(label);
     QPropertyAnimation* ani = new QPropertyAnimation(label, "pos");
@@ -5813,10 +6635,17 @@ void MainWindow::updateOnlineRankGUI()
     for (int i = 0; i < liveService->onlineGoldRank.size(); i++)
     {
         const LiveDanmaku &danmaku = liveService->onlineGoldRank.at(i);
-        qint64 uid = danmaku.getUid();
+        UIDT uid = danmaku.getUid();
         if (!pl->userHeaders.contains(uid))
         {
-            QString url = danmaku.extraJson.value("face").toString();
+            QString url = danmaku.getAvatar();
+            if (rt->livePlatform == Bilibili)
+            {
+                if (url.isEmpty())
+                    url = danmaku.extraJson.value("face").toString(); // 哔哩哔哩
+            }
+            if (url.isEmpty())
+                continue;
             // qInfo() << "获取头像：" << uid << url;
             get(url, [=](QNetworkReply* reply){
                 if (pl->userHeaders.contains(uid)) // 可能是多线程冲突了
@@ -5843,8 +6672,8 @@ void MainWindow::updateOnlineRankGUI()
     int diff = 0;
     for (diff = 0; diff < liveService->onlineGoldRank.size() && diff < ui->onlineRankListWidget->count(); diff++)
     {
-        qint64 id1 = liveService->onlineGoldRank.at(diff).getUid();
-        qint64 id2 = ui->onlineRankListWidget->item(diff)->data(Qt::UserRole).toLongLong();
+        UIDT id1 = liveService->onlineGoldRank.at(diff).getUid();
+        UIDT id2 = ui->onlineRankListWidget->item(diff)->data(Qt::UserRole).toString();
         if (id1 != id2)
             break;
     }
@@ -5863,7 +6692,7 @@ void MainWindow::updateOnlineRankGUI()
     for (int i = diff; i < liveService->onlineGoldRank.size(); i++)
     {
         auto& danmaku = liveService->onlineGoldRank.at(i);
-        qint64 uid = danmaku.getUid();
+        UIDT uid = danmaku.getUid();
         if (pl->userHeaders.contains(uid))
         {
             // 创建widget
@@ -5904,6 +6733,12 @@ void MainWindow::updateOnlineRankGUI()
                 scoreLabel->setAlignment(Qt::AlignLeft);
             if (!miniHeight)
                 miniHeight = card->height();
+
+            // 抖音不显示分数
+            if (rt->livePlatform == Douyin)
+            {
+                scoreLabel->hide();
+            }
 
             // 创建item
             auto item = new QListWidgetItem();
@@ -6048,7 +6883,7 @@ void MainWindow::showDiangeHistory()
     QMessageBox::information(this, "点歌历史", text);
 }
 
-void MainWindow::eternalBlockUser(qint64 uid, QString uname, QString msg)
+void MainWindow::eternalBlockUser(UIDT uid, QString uname, QString msg)
 {
     if (us->eternalBlockUsers.contains(EternalBlockUser(uid, ac->roomId.toLongLong(), msg)))
     {
@@ -6063,12 +6898,12 @@ void MainWindow::eternalBlockUser(qint64 uid, QString uname, QString msg)
     qInfo() << "添加永久禁言：" << uname << "    当前人数：" << us->eternalBlockUsers.size();
 }
 
-void MainWindow::cancelEternalBlockUser(qint64 uid)
+void MainWindow::cancelEternalBlockUser(UIDT uid)
 {
     cancelEternalBlockUser(uid, ac->roomId.toLongLong());
 }
 
-void MainWindow::cancelEternalBlockUser(qint64 uid, qint64 roomId)
+void MainWindow::cancelEternalBlockUser(UIDT uid, qint64 roomId)
 {
     EternalBlockUser user(uid, roomId, "");
     if (!us->eternalBlockUsers.contains(user))
@@ -6079,12 +6914,12 @@ void MainWindow::cancelEternalBlockUser(qint64 uid, qint64 roomId)
     qInfo() << "移除永久禁言：" << uid << "    当前人数：" << us->eternalBlockUsers.size();
 }
 
-void MainWindow::cancelEternalBlockUserAndUnblock(qint64 uid)
+void MainWindow::cancelEternalBlockUserAndUnblock(UIDT uid)
 {
     cancelEternalBlockUserAndUnblock(uid, ac->roomId.toLongLong());
 }
 
-void MainWindow::cancelEternalBlockUserAndUnblock(qint64 uid, qint64 roomId)
+void MainWindow::cancelEternalBlockUserAndUnblock(UIDT uid, qint64 roomId)
 {
     cancelEternalBlockUser(uid, roomId);
 
@@ -6362,10 +7197,12 @@ void MainWindow::on_actionSet_Cookie_triggered()
     if (!ok)
         return ;
 
-    if (!s.contains("SESSDATA="))
+    if (rt->livePlatform == Bilibili)
     {
-        QMessageBox::warning(this, "设置Cookie", "设置Cookie失败，这不是Bilibili的浏览器Cookie");
-        return ;
+        if (!s.contains("SESSDATA="))
+        {
+            QMessageBox::warning(this, "设置Cookie", "设置Cookie失败，这不是Bilibili的浏览器Cookie");
+        }
     }
 
     if (s.toLower().startsWith("cookie:"))
@@ -6425,7 +7262,7 @@ void MainWindow::on_actionShow_Order_Player_Window_triggered()
             qInfo() << "点歌成功" << song.simpleString() << latency;
 
             // 获取UID
-            qint64 uid = 0;
+            UIDT uid;
             for (int i = liveService->roomDanmakus.size()-1; i >= 0; i--)
             {
                 const LiveDanmaku danmaku = liveService->roomDanmakus.at(i);
@@ -6817,9 +7654,9 @@ void MainWindow::saveEveryGuard(LiveDanmaku danmaku)
            << danmaku.getNickname() << ","
            << danmaku.getGiftName() << ","
            << danmaku.getNumber() << ","
-           << us->danmakuCounts->value("guard/" + snum(danmaku.getUid()), 0).toInt() << ","
+           << us->danmakuCounts->value("guard/" + danmaku.getUid()).toInt() << ","
            << danmaku.getUid() << ","
-           << us->userMarks->value("base/" + snum(danmaku.getUid()), "").toString() << "\n";
+           << us->userMarks->value("base/" + danmaku.getUid()).toString() << "\n";
 
     file.close();
 }
@@ -7014,9 +7851,47 @@ void MainWindow::releaseLiveData(bool prepare)
 
 QRect MainWindow::getScreenRect()
 {
-    QScreen *screen = QGuiApplication::primaryScreen();
+    // 获取screenDanmakuIndex对应的显示器
+    if (screenDanmakuIndex < 0 || screenDanmakuIndex >= ui->screenMonitorCombo->count())
+    {
+        return QGuiApplication::primaryScreen()->availableVirtualGeometry();
+    }
+    QScreen *screen = QGuiApplication::screens().at(screenDanmakuIndex);
     QRect screenRect = screen->availableVirtualGeometry();
     return screenRect;
+}
+
+void MainWindow::loadScreenMonitors()
+{
+    // 获取所有显示器，并显示名字在Combo中
+    QList<QScreen*> screens = QGuiApplication::screens();
+    ui->screenMonitorCombo->clear();
+    foreach (QScreen* screen, screens)
+    {
+        QString displayInfo;
+        QString manufacturer = screen->manufacturer();
+        QString model = screen->model();
+        QRect geometry = screen->geometry();
+        
+        // 组合显示器信息
+        if (!manufacturer.isEmpty() && !model.isEmpty())
+            displayInfo = QString("%1 %2").arg(manufacturer).arg(model);
+        else if (!manufacturer.isEmpty())
+            displayInfo = manufacturer;
+        else if (!model.isEmpty())
+            displayInfo = model;
+        else
+            displayInfo = QString("显示器 %1 (%2x%3)").arg(screens.indexOf(screen) + 1)
+                                 .arg(geometry.width()).arg(geometry.height());
+        
+        ui->screenMonitorCombo->addItem(displayInfo);
+    }
+
+    // 恢复之前的配置，如果为空或者不存在，那么就是第一个
+    int index = us->value("screendanmaku/monitor", 0).toInt();
+    if (index < 0 || index >= ui->screenMonitorCombo->count())
+        index = 0;
+    ui->screenMonitorCombo->setCurrentIndex(index);
 }
 
 void MainWindow::getPositiveVote()
@@ -7028,7 +7903,7 @@ void MainWindow::getPositiveVote()
             && !us->value("ask/positiveVote", false).toBool()
             && liveService->getPositiveVoteCount() > 0)
     {
-        QTimer::singleShot(3000, [=]{
+        QTimer::singleShot(3000, this, [=]{
             if (!ac->cookieUid.isEmpty() && !liveService->isPositiveVote())
             {
                 auto noti = new NotificationEntry("positiveVote", "好评", "您是否觉得神奇弹幕好用？");
@@ -7521,6 +8396,14 @@ void MainWindow::saveGameNumbers(int channel)
 
 void MainWindow::restoreGameNumbers()
 {
+    // 清空
+    for (int i = 0; i < CHANNEL_COUNT; i++)
+    {
+        auto& list = cr->gameNumberLists[i];
+        list.clear();
+    }
+
+    // 读取
     for (int i = 0; i < CHANNEL_COUNT; i++)
     {
         if (!cr->heaps->contains("game_numbers/r" + snum(i)))
@@ -7529,7 +8412,7 @@ void MainWindow::restoreGameNumbers()
         QStringList sl = cr->heaps->value("game_numbers/r" + snum(i)).toString().split(";");
         auto& list = cr->gameNumberLists[i];
         list.clear();
-        foreach (QString s, sl)
+        foreach (UIDT s, sl)
             list << s.toLongLong();
     }
 }
@@ -7542,6 +8425,14 @@ void MainWindow::saveGameTexts(int channel)
 
 void MainWindow::restoreGameTexts()
 {
+    // 清空
+    for (int i = 0; i < CHANNEL_COUNT; i++)
+    {
+        auto& list = cr->gameTextLists[i];
+        list.clear();
+    }
+
+    // 读取
     for (int i = 0; i < CHANNEL_COUNT; i++)
     {
         if (!cr->heaps->contains("game_texts/r" + snum(i)))
@@ -7637,9 +8528,21 @@ void MainWindow::openLink(QString link)
                                     background-position:center;\
                                     background-repeat:none;");
     }
+    else if (link == "copy_qq_group")
+    {
+        QApplication::clipboard()->setText("427436529");
+        QMessageBox::information(this, "复制QQ群号", "已复制QQ群号码“427436529”，赶紧入群吧~");
+    }
     else if (link == "gift_list")
     {
         on_actionShow_Gift_List_triggered();
+    }
+    else if (link == "notice_manager")
+    {
+        NoticeManagerWindow* nmw = new NoticeManagerWindow(this);
+        nmw->setLiveService((DouyinLiveService*)liveService);
+        nmw->setSqlService(&sqlService);
+        nmw->show();
     }
 }
 
@@ -7739,7 +8642,7 @@ void MainWindow::addGuiGiftList(const LiveDanmaku &danmaku)
     // TODO: 这个URL的图片有些是不准确的
     QString url;
     if (pl->allGiftMap.contains(id))
-        url = pl->allGiftMap.value(id).getFaceUrl();
+        url = pl->allGiftMap.value(id).getAvatar();
     if (url.isEmpty())
     {
         url = "http://openapi.zbmate.com/gift_icons/b/";
@@ -7927,7 +8830,7 @@ void MainWindow::upgradeOneVersionData(QString beforeVersion)
     }
     else if (beforeVersion == "4.10.3")
     {
-        QTimer::singleShot(3000, [=]{
+        QTimer::singleShot(3000, this, [=]{
             bool fixed = false;
             for (int row = 0; row < ui->eventListWidget->count(); row++)
             {
@@ -8110,12 +9013,18 @@ void MainWindow::showNotify(QString s) const
 
 void MainWindow::initDbService()
 {
-    // TODO: 可更换路径
-    sqlService.setDbPath(rt->dataPath + "database.db");
+    // 可更换路径
+    QString customPath = us->value("custom/databasePath", "").toString();
+    if (customPath.isEmpty())
+        customPath = rt->dataPath + "database.db";
+    else
+        qInfo() << "自定义数据库路径：" << customPath;
+    sqlService.setDbPath(customPath);
     if (us->saveToSqlite)
         sqlService.open();
+    ui->databaseWidget->setService(&sqlService);
 
-    connect(liveService, &LiveRoomService::signalNewDanmaku, this, [=](const LiveDanmaku &danmaku){
+    connect(liveService, &LiveServiceBase::signalNewDanmaku, this, [=](const LiveDanmaku &danmaku){
         if (danmaku.isPkLink()) // 不包含PK同步的弹幕
             return ;
         if (danmaku.isNoReply() && !danmaku.isAutoSend()) // 不包含自动发送的弹幕
@@ -8130,7 +9039,10 @@ void MainWindow::initDbService()
 
 void MainWindow::showSqlQueryResult(QString sql)
 {
-    DBBrowser* dbb = new DBBrowser(&sqlService, us, nullptr);
+    DBBrowser* dbb = new DBBrowser(nullptr);
+    dbb->setWindowFlags(Qt::Dialog);
+    dbb->setAttribute(Qt::WA_DeleteOnClose, true);
+    dbb->setService(&sqlService);
     dbb->setGeometry(this->geometry());
     connect(dbb, &DBBrowser::signalProcessVariant, this, [=](QString& code) {
         code = cr->processDanmakuVariants(code, LiveDanmaku());
@@ -8157,6 +9069,7 @@ void MainWindow::sendEmail(const QString &to, const QString &subject, const QStr
 
     if (emailService == nullptr)
     {
+        qInfo() << "初始化邮件服务";
         emailService = new EmailUtil(this);
     }
 
@@ -8177,6 +9090,190 @@ void MainWindow::sendEmail(const QString &to, const QString &subject, const QStr
                             body);
 }
 
+void MainWindow::setNetworkProxy()
+{
+    QString proxyType = us->value("proxy/type", ui->proxyTypeCombo->currentText()).toString().toUpper();
+    QString proxyHost = us->value("proxy/host").toString();
+    int proxyPort = us->value("proxy/port", ui->proxyPortSpin->value()).toInt();
+    QString proxyUsername = us->value("proxy/username").toString();
+    QString proxyPassword = us->value("proxy/password").toString();
+
+    static bool setted = false;
+    QNetworkProxy proxy;
+    if (proxyType.contains("不") || proxyType.contains("无") || proxyHost.isEmpty() || proxyPort == 0)
+    {
+        if (setted)
+        {
+            setted = false;
+            qDebug() << "不使用代理";
+            QNetworkProxy::setApplicationProxy(QNetworkProxy::NoProxy);
+        }
+        return;
+    }
+    else if (proxyType == "HTTP")
+    {
+        proxy = QNetworkProxy::HttpProxy;
+    }
+    else if (proxyType == "SOCKS5")
+    {
+        proxy = QNetworkProxy::Socks5Proxy;
+    }
+    else
+    {
+        qWarning() << "不支持的代理类型：" << proxyType;
+        return;
+    }
+
+    setted = true;
+    qInfo() << "设置代理：" << proxyHost << proxyPort;
+    proxy.setHostName(proxyHost);
+    proxy.setPort(proxyPort);
+    proxy.setUser(proxyUsername);
+    proxy.setPassword(proxyPassword);
+
+    QNetworkProxy::setApplicationProxy(proxy);
+}
+
+void MainWindow::initFansArchivesService()
+{
+    if (!sqlService.isOpen())
+    {
+        qWarning() << "数据库未打开，无法初始化粉丝档案服务";
+        QMessageBox::warning(this, "警告", "数据库未打开，无法初始化粉丝档案服务");
+        return;
+    }
+
+    if (fansArchivesService)
+    {
+        fansArchivesService->start();
+        return;
+    }
+    qInfo() << "初始化粉丝档案服务";
+    fansArchivesService = new FansArchivesService(&sqlService, this);
+    if (this->danmakuWindow)
+        danmakuWindow->setFansArchivesService(fansArchivesService);
+
+    // 连接信号
+    connect(fansArchivesService, &FansArchivesService::signalFansArchivesLoadingStatusChanged, this, [=](const QString& status){
+        ui->fansArchiveLoadingLabel->setText(status);
+    });
+    connect(fansArchivesService, &FansArchivesService::signalFansArchivesUpdated, this, [=](QString uid){
+        // 判断没有选中或者选中了第一个？
+        // 如果是第一个，刷新之后，自动选中第一个；
+        // 如更哦不是第一个，那么自动恢复至原先选中的UID
+        int selectRow = ui->fansArchivesTableView->currentIndex().row();
+        QString selectUid;
+        if (selectRow != -1)
+            selectUid = ui->fansArchivesTableView->model()->index(selectRow, 0).data().toString();
+        
+        updateFansArchivesListView();
+
+        if (selectRow == 0 || selectRow == 1)
+        {
+            // 刷新之后，自动选中第一个
+            if (ui->fansArchivesTableView->model()->rowCount() > 0)
+                ui->fansArchivesTableView->setCurrentIndex(ui->fansArchivesTableView->model()->index(0, 0));
+        }
+        else if (!selectUid.isEmpty() && selectUid != uid)
+        {
+            //  重新定位到UID这一行
+            for (int row = 0; row < ui->fansArchivesTableView->model()->rowCount(); row++)
+            {
+                if (ui->fansArchivesTableView->model()->index(row, 0).data().toString() == uid)
+                {
+                    ui->fansArchivesTableView->setCurrentIndex(ui->fansArchivesTableView->model()->index(row, 0));
+                    break;
+                }
+            }
+        }
+    });
+    connect(fansArchivesService, &FansArchivesService::signalError, this, [=](const QString& error) {
+        showError("粉丝档案", error);
+        us->fansArchives = false;
+        ui->fansArchivesCheck->setChecked(false);
+    });
+
+    // 开始运行
+    fansArchivesService->start();
+}
+
+/**
+ * 更新数据中心显示的用户
+ * 同步为数据库查找到的档案列表的昵称字段
+ */
+void MainWindow::updateFansArchivesListView()
+{
+    if (!sqlService.isOpen()) // 可能是还没初始化
+        return;
+
+    // 创建数据模型
+    QSqlQueryModel* model = new QSqlQueryModel(this);
+    
+    // 执行SQL查询,只获取nickname字段
+    model->setQuery("SELECT DISTINCT uid, uname FROM fans_archive ORDER BY update_time DESC", sqlService.getDb());
+    
+    if (model->lastError().isValid()) {
+        showError("数据库查询失败", model->lastError().text());
+        return;
+    }
+
+    // 设置列标题(可选)
+    model->setHeaderData(0, Qt::Horizontal, "UID");
+    model->setHeaderData(1, Qt::Horizontal, "昵称");
+    
+    // 将model设置到tableView
+    ui->fansArchivesTableView->setModel(model);
+
+    // 隐藏UID列
+    ui->fansArchivesTableView->hideColumn(0);
+
+    // 隐藏横纵标题和序号
+    ui->fansArchivesTableView->horizontalHeader()->hide();
+    ui->fansArchivesTableView->verticalHeader()->hide();
+    
+    // 设置表格样式
+    ui->fansArchivesTableView->setSelectionBehavior(QAbstractItemView::SelectRows);  // 整行选择
+    ui->fansArchivesTableView->setSelectionMode(QAbstractItemView::SingleSelection); // 单行选择
+    ui->fansArchivesTableView->horizontalHeader()->setStretchLastSection(true);      // 最后一列自动拉伸
+
+    // 变化信号
+    connect(ui->fansArchivesTableView->selectionModel(), &QItemSelectionModel::currentRowChanged, this, [=](const QModelIndex &current, const QModelIndex &previous){
+        if (!current.isValid())
+        {
+            loadFansArchives("");
+            return;
+        }
+
+        QString uid = ui->fansArchivesTableView->model()->index(current.row(), 0).data().toString();
+        qInfo() << "选择粉丝档案：" << uid;
+        loadFansArchives(uid);
+    });
+}
+
+/**
+ * 加载用户的档案
+ */
+void MainWindow::loadFansArchives(QString uid)
+{
+    if (uid.isEmpty()) // 清空
+    {
+        ui->fansArchivesTextEdit->clear();
+        ui->fansArchiveStatusLabel->clear();
+        return;
+    }
+
+    MyJson json = sqlService.getFansArchives(uid);
+    if (json.isEmpty())
+    {
+        QMessageBox::warning(this, "警告", "粉丝档案不存在");
+        return;
+    }
+
+    QString archives = json.s("archive");
+    ui->fansArchivesTextEdit->setPlainText(archives);
+    ui->fansArchiveStatusLabel->setText(json.s("update_time"));
+}
+
 /**
  * [已废弃]没任何作用
  */
@@ -8189,8 +9286,7 @@ void MainWindow::on_actionMany_Robots_triggered()
     QString host = QString("wss://%1:%2/sub").arg(hostServer.host).arg(hostServer.wss_port);
 
     QSslConfiguration config = liveService->liveSocket->sslConfiguration();
-    config.setPeerVerifyMode(QSslSocket::VerifyNone);
-    config.setProtocol(QSsl::TlsV1SslV3);
+    config.setProtocol(QSsl::TlsV1_2OrLater);
 
     for (int i = 0; i < 1000; i++)
     {
@@ -8465,7 +9561,7 @@ void MainWindow::slotStartWork()
 
     // 延迟操作（好像是有bug）
     QString ri = ac->roomId;
-    QTimer::singleShot(5000, [=]{
+    QTimer::singleShot(5000, this, [=]{
         if (ri != ac->roomId)
             return ;
 
@@ -8919,54 +10015,11 @@ void MainWindow::on_AIReplyMsgCheck_clicked()
         ui->AIReplyMsgCheck->setText("回复弹幕(仅单条)");
 }
 
-void MainWindow::slotAIReplyed(QString reply, LiveDanmaku danmaku)
+void MainWindow::on_AIReplySelfCheck_clicked()
 {
-    if (!us->AIReplyMsgSend)
-        return ;
-
-    qint64 uid = danmaku.getUid();
-    // 机器人自动发送的不回复（不然自己和自己打起来了）
-    if (snum(uid) == ac->cookieUid && cr->noReplyMsgs.contains(reply))
-        return ;
-
-    // 过滤器
-    danmaku.setAIReply(reply);
-    if (cr->isFilterRejected("FILTER_AI_REPLY_MSG", danmaku))
-    {
-        qInfo() << "过滤器已阻止AI回复：" << danmaku.getText() << danmaku.getAIReply();
-        return;
-    }
-
-    if (us->chatgpt_analysis)
-    {
-        /// 直接发送JSON
-        if (!reply.startsWith("{"))
-        {
-            int index = reply.indexOf("{");
-            if (index > -1)
-            {
-                reply = reply.right(reply.length() - index);
-            }
-        }
-        MyJson json(reply.toUtf8());
-        if (json.isEmpty())
-        {
-            qWarning() << "无法解析的GPT回复格式：" << reply.toUtf8();
-            return;
-        }
-        triggerCmdEvent(GPT_TASK_RESPONSE_EVENT, danmaku.with(json));
-    }
-    else
-    {
-        // AI回复长度上限，以及过滤
-        if (us->AIReplyMsgSend == 1 && reply.length() > ac->danmuLongest)
-            return ;
-
-        // 自动断句
-        qInfo() << "发送AI回复：" << reply;
-        QStringList sl = liveService->splitLongDanmu(reply, ac->danmuLongest);
-        cr->sendAutoMsg(sl.join("\\n"), danmaku);
-    }
+    bool check = ui->AIReplySelfCheck->isChecked();
+    us->AIReplySelf = check;
+    us->setValue("danmaku/aiReplySelf", check);
 }
 
 void MainWindow::on_danmuLongestSpin_editingFinished()
@@ -9354,8 +10407,34 @@ void MainWindow::on_actionQRCode_Login_triggered()
     QRCodeLoginDialog* dialog = new QRCodeLoginDialog(this);
     connect(dialog, &QRCodeLoginDialog::logined, this, [=](QString s){
         autoSetCookie(s);
+        emit liveService->signalNewAccountSetted();
     });
     dialog->exec();
+}
+
+void MainWindow::on_actionWebViewLogin_triggered()
+{
+    QString platformUrl;
+
+    switch (rt->livePlatform)
+    {
+    case Bilibili:
+        platformUrl = "https://live.bilibili.com";
+        break;
+    case Douyin:
+        platformUrl = "https://www.douyin.com";
+        break;
+    default:
+        return ;
+    }
+
+    QString newCookie = WebLoginUtil::getCookie(platformUrl, ac->browserCookie);
+    if (!newCookie.isEmpty())
+    {
+        qDebug() << "浏览器登录Cookie：" << newCookie;
+        autoSetCookie(newCookie);
+        emit liveService->signalNewAccountSetted();
+    }
 }
 
 void MainWindow::on_allowAdminControlCheck_clicked()
@@ -9492,10 +10571,19 @@ void MainWindow::on_actionAnchor_Case_triggered()
 void MainWindow::on_robotNameButton_clicked()
 {
     newFacileMenu;
-    menu->addAction(ui->actionQRCode_Login);
-    menu->addAction(ui->actionSet_Cookie);
-    menu->addAction(ui->actionSet_Danmaku_Data_Format);
-    menu->split()->addAction(ui->actionLogout)->disable(ac->cookieUid.isEmpty());
+    menu->addAction(ui->actionQRCode_Login)->hide(rt->livePlatform != Bilibili);
+#ifdef ENABLE_WEBENGINE
+    menu->addAction(ui->actionWebViewLogin);
+#endif
+    menu->addAction(ui->actionSet_Cookie)->hide(rt->livePlatform == Keyu);
+    menu->addAction(QIcon(":/icons/user_agent"), "设置UserAgent", [=]{
+        on_UAButton_clicked();
+    })->hide(rt->livePlatform != Douyin);
+    menu->addAction(ui->actionSet_Danmaku_Data_Format)->hide(rt->livePlatform != Bilibili);
+    menu->split()->addAction(ui->actionLogout)->disable(ac->browserCookie.isEmpty())->hide(rt->livePlatform == Keyu);
+    menu->addAction("设备码：" + rt->CPU_ID, [=]{
+        on_actionBuy_VIP_triggered();
+    })->hide(rt->livePlatform != Keyu);
     menu->exec();
 }
 
@@ -9571,7 +10659,7 @@ void MainWindow::on_showLiveDanmakuWindowButton_clicked()
 
 void MainWindow::on_liveStatusButton_clicked()
 {
-    if (!ac->liveStatus)
+    if (!liveService->isLiving())
         return ;
     on_actionShow_Live_Video_triggered();
 }
@@ -9673,6 +10761,11 @@ void MainWindow::on_vipExtensionButton_clicked()
         return ;
     }
     on_actionBuy_VIP_triggered();
+}
+
+void MainWindow::on_vipDatabaseButton_clicked()
+{
+    on_vipExtensionButton_clicked();
 }
 
 void MainWindow::on_enableTrayCheck_clicked()
@@ -10079,7 +11172,7 @@ void MainWindow::exportAllGuardsByMonth(QString exportPath)
         QString nickname;
         QString giftName;
         int count;
-        qint64 uid;
+        UIDT uid;
         QString remark;
     };
 
@@ -10096,7 +11189,7 @@ void MainWindow::exportAllGuardsByMonth(QString exportPath)
             qWarning() << "不符合的格式：" << lines.at(i);
             continue;
         }
-        GuardTrade trade{cells[0], cells[2], cells[3], cells[4].toInt(), cells[6].toLongLong(), cells.size() >= 8 ? cells[7] : ""};
+        GuardTrade trade{cells[0], cells[2], cells[3], cells[4].toInt(), cells[6], cells.size() >= 8 ? cells[7] : ""};
         trades.append(trade);
     }
 
@@ -10114,7 +11207,7 @@ void MainWindow::exportAllGuardsByMonth(QString exportPath)
     }
 
     // 获取所有用户
-    QList<qint64> users;
+    QList<UIDT> users;
     QList<QString> nicknames;
     for (const GuardTrade& trade: trades)
     {
@@ -10160,7 +11253,7 @@ void MainWindow::exportAllGuardsByMonth(QString exportPath)
     for (int i = 0; i < users.size(); i++)
     {
         // 添加用户ID和昵称列
-        fullText += "\n" + snum(users.at(i)) + "," + nicknames.at(i);
+        fullText += "\n" + users.at(i) + "," + nicknames.at(i);
         // 添加每次上船的标记
         for (int j = 0; j < months.size(); j++)
         {
@@ -10223,7 +11316,7 @@ void MainWindow::on_receivePrivateMsgCheck_stateChanged(int arg1)
             liveService->privateMsgTimer = new QTimer(this);
             liveService->privateMsgTimer->setInterval(5000);
             liveService->privateMsgTimer->setSingleShot(false);
-            connect(liveService->privateMsgTimer, &QTimer::timeout, liveService, &LiveRoomService::refreshPrivateMsg);
+            connect(liveService->privateMsgTimer, &QTimer::timeout, liveService, &LiveServiceBase::refreshPrivateMsg);
         }
 
         liveService->privateMsgTimer->start();
@@ -10284,7 +11377,7 @@ void MainWindow::on_forumButton_clicked()
 
 void MainWindow::on_complexCalcCheck_clicked()
 {
-    us->setValue("programming/compexCalc", us->complexCalc = ui->complexCalcCheck->isChecked());
+    us->setValue("programming/complexCalc", us->complexCalc = ui->complexCalcCheck->isChecked());
 }
 
 /**
@@ -10329,7 +11422,7 @@ void MainWindow::on_stringSimilarCheck_clicked()
 
 void MainWindow::on_onlineRankListWidget_itemDoubleClicked(QListWidgetItem *item)
 {
-    openLink(liveService->getApiUrl(UserSpace, item->data(Qt::UserRole).toLongLong()));
+    openLink(liveService->getApiUrl(UserSpace, item->data(Qt::UserRole).toString()));
 }
 
 void MainWindow::on_actionShow_Gift_List_triggered()
@@ -10419,11 +11512,12 @@ void MainWindow::on_actionLogout_triggered()
                               QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) != QMessageBox::Yes)
         return ;
 
-    us->setValue("danmaku/browserCookie", ac->browserCookie = "");
-    us->setValue("danmaku/browserData", ac->browserData = "");
+    us->setValue("danmaku/browserCookie" + rt->getPlatformSuffix(), ac->browserCookie = "");
+    us->setValue("danmaku/browserData" + rt->getPlatformSuffix(), ac->browserData = "");
     ac->userCookies = QVariant();
     ac->csrf_token = "";
     ac->cookieUid = "";
+    ac->cookieSecUid = "";
     ac->cookieUname = "";
     ac->cookieToken = "";
     ac->cookieULevel = 0;
@@ -10579,6 +11673,11 @@ void MainWindow::on_closeGuiCheck_clicked()
     }
 }
 
+void MainWindow::on_chatGPTEndpointEdit_textEdited(const QString &arg1)
+{
+    us->setValue("chatgpt/endpoint", us->chatgpt_endpiont = arg1);
+}
+
 void MainWindow::on_chatGPTKeyEdit_textEdited(const QString &arg1)
 {
     us->setValue("chatgpt/open_ai_key", us->open_ai_key = arg1);
@@ -10661,6 +11760,9 @@ void MainWindow::on_GPTAnalysisCheck_clicked()
 {
     us->chatgpt_analysis = ui->GPTAnalysisCheck->isChecked();
     us->setValue("chatgpt/analysis", us->chatgpt_analysis);
+
+    // 无论开关，清空历史记录，不然容易串
+    chatService->clear();
 }
 
 void MainWindow::on_GPTAnalysisFormatButton_clicked()
@@ -10672,6 +11774,37 @@ void MainWindow::on_GPTAnalysisFormatButton_clicked()
 
     us->chatgpt_analysis_format = s;
     us->setValue("chatgpt/analysis_format", s);
+}
+
+void MainWindow::on_GPTAnalysisDefaultButton_clicked()
+{
+    if (QMessageBox::question(this, "提示", "确定要恢复【AI分析】默认设置吗？\n提示词和事件都会重置", QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+    {
+        return;
+    }
+
+    qInfo() << "恢复AI分析的提示词";
+    MyJson aiConfig = us->dynamicConfigs.value("chatgpt").toObject();
+
+    QString s = aiConfig.value("analysis_prompt").toString();
+    us->chatgpt_analysis_prompt = s;
+    us->setValue("chatgpt/analysis_prompt", s);
+
+    s = aiConfig.value("analysis_format").toString();
+    us->chatgpt_analysis_format = s;
+    us->setValue("chatgpt/analysis_format", s);
+
+    s = aiConfig.value("analysis_action").toString();
+    us->chatgpt_analysis_action = s;
+    for (int row = 0; row < ui->eventListWidget->count(); row++)
+    {
+        auto widget = ui->eventListWidget->itemWidget(ui->eventListWidget->item(row));
+        auto tw = static_cast<EventWidget*>(widget);
+        if (tw->isEnabled() && tw->isMatch(GPT_TASK_RESPONSE_EVENT))
+        {
+            tw->setCode(s);
+        }
+    }
 }
 
 void MainWindow::on_removeLongerRandomDanmakuCheck_clicked()
@@ -10719,4 +11852,396 @@ void MainWindow::on_emailFromEdit_editingFinished()
 void MainWindow::on_emailPasswordEdit_editingFinished()
 {
     us->setValue("email/password", ui->emailPasswordEdit->text());
+}
+
+void MainWindow::on_proxyTypeCombo_activated(const QString &arg1)
+{
+    us->setValue("proxy/type", arg1);
+    setNetworkProxy();
+}
+
+void MainWindow::on_proxyHostEdit_editingFinished()
+{
+    us->setValue("proxy/host", ui->proxyHostEdit->text());
+    setNetworkProxy();
+}
+
+void MainWindow::on_proxyPortSpin_editingFinished()
+{
+    us->setValue("proxy/port", snum(ui->proxyPortSpin->value()));
+    setNetworkProxy();
+}
+
+void MainWindow::on_proxyUsernameEdit_editingFinished()
+{
+    us->setValue("proxy/username", ui->proxyUsernameEdit->text());
+    setNetworkProxy();
+}
+
+void MainWindow::on_proxyPasswordEdit_editingFinished()
+{
+    us->setValue("proxy/password", ui->proxyPasswordEdit->text());
+    setNetworkProxy();
+}
+
+void MainWindow::on_fansArchivesCheck_clicked()
+{
+    if (ui->fansArchivesCheck->isChecked() && !hasPermission())
+    {
+        on_actionBuy_VIP_triggered();
+        ui->fansArchivesCheck->setChecked(false);
+        return ;
+    }
+
+    us->fansArchives = ui->fansArchivesCheck->isChecked();
+    us->setValue("us/fansArchives", us->fansArchives);
+    initFansArchivesService();
+}
+
+
+void MainWindow::on_fansArchivesByRoomCheck_clicked()
+{
+    us->fansArchivesByRoom = ui->fansArchivesByRoomCheck->isChecked();
+    us->setValue("us/fansArchivesByRoom", us->fansArchivesByRoom);
+}
+
+
+void MainWindow::on_fansArchivesTabButton_clicked()
+{
+    ui->dataCenterStackedWidget->setCurrentIndex(0);
+    us->setValue("mainwindow/dataCentetStackIndex", 0);
+
+    foreach (auto btn, dataCenterTabButtons)
+    {
+        btn->setNormalColor(Qt::transparent);
+        btn->setTextColor(Qt::black);
+    }
+    dataCenterTabButtons.at(ui->dataCenterStackedWidget->currentIndex())->setNormalColor(themeSbg);
+    dataCenterTabButtons.at(ui->dataCenterStackedWidget->currentIndex())->setTextColor(themeSfg);
+}
+
+
+void MainWindow::on_databaseTabButton_clicked()
+{
+    ui->dataCenterStackedWidget->setCurrentIndex(1);
+    us->setValue("mainwindow/dataCentetStackIndex", 1);
+
+    foreach (auto btn, dataCenterTabButtons)
+    {
+        btn->setNormalColor(Qt::transparent);
+        btn->setTextColor(Qt::black);
+    }
+    dataCenterTabButtons.at(ui->dataCenterStackedWidget->currentIndex())->setNormalColor(themeSbg);
+    dataCenterTabButtons.at(ui->dataCenterStackedWidget->currentIndex())->setTextColor(themeSfg);
+}
+
+
+void MainWindow::on_refreshFansArchivesButton_clicked()
+{
+    updateFansArchivesListView();
+}
+
+
+void MainWindow::on_clearFansArchivesButton_clicked()
+{
+    if (!fansArchivesService)
+    {
+        QMessageBox::warning(this, "粉丝档案", "功能尚未开启");
+        return;
+    }
+
+    newFacileMenu;
+    menu->addAction("清除当前直播间的档案", [&]{
+        fansArchivesService->clearFansArchivesByRoomId(ac->roomId);
+        fansArchivesService->start();
+    })->tooltip("只清除当前直播间的档案，不影响“不区分直播间”、其他直播间的档案\n如果总开关保持开启，将会重新生成");
+    menu->addAction("清除不区分直播间的档案", [&]{
+        fansArchivesService->clearFansArchivesByNoRoom();
+        fansArchivesService->start();
+    })->tooltip("只清除“不区分直播间”的档案，不影响指定直播间的档案\n如果总开关保持开启，将会重新生成");
+    menu->addAction("清除所有档案", [&]{
+        fansArchivesService->clearFansArchivesAll();
+        fansArchivesService->start();
+    })->tooltip("清除所有粉丝档案\n如果总开关保持开启，将会重新生成");
+    menu->exec();
+}
+
+
+void MainWindow::on_screenMonitorCombo_activated(int index)
+{
+    // 更新显示器，毕竟显示器是可以热插拔的
+    loadScreenMonitors();
+
+    // 保存设置
+    screenDanmakuIndex = index;
+    us->setValue("screendanmaku/monitor", index);
+    qInfo() << "设置显示器：" << index;
+}
+
+
+void MainWindow::on_chatGPTModelNameCombo_editTextChanged(const QString &arg1)
+{
+    on_chatGPTModelNameCombo_activated(arg1);
+}
+
+void MainWindow::on_UAButton_clicked()
+{
+    bool ok = false;
+    QString ua = QInputDialog::getText(this, "UserAgent", "发送弹幕的UA必须和登录账号的平台一致，否则会掉账号登录", QLineEdit::Normal, liveService->getUserAgent(), &ok);
+    if (!ok)
+        return ;
+    liveService->setUserAgent(ua);
+    us->setValue("debug/userAgent", ua);
+}
+
+void MainWindow::slotSubAccountChanged(const QString& cookie, const SubAccount& subAccount)
+{
+    bool changed = false;
+    // 如果有相同cookie，那么可能是手动修改账号cookie，进行更新
+    int index = -1;
+    for (int i = 0; i < us->subAccounts.size(); i++)
+    {
+        if (us->subAccounts[i].cookie == cookie)
+        {
+            if (us->subAccounts[i].uid != subAccount.uid)
+            {
+                changed = true;
+                qInfo() << "子账号" << (i+1) << "：" << subAccount.uid << subAccount.nickname << "变更为" << us->subAccounts[i].uid << us->subAccounts[i].nickname;
+            }
+            index = i;
+            break;
+        }
+    }
+
+    // 如果不是相同cookie，也有可能是刷新账号的cookie，比如重新登录
+    if (index == -1)
+    {
+        for (int i = 0; i < us->subAccounts.size(); i++)
+        {
+            if (us->subAccounts[i].uid == subAccount.uid)
+            {
+                if (us->subAccounts[i].cookie != cookie)
+                {
+                    changed = true;
+                    qInfo() << "子账号" << (i+1) << "：" << subAccount.uid << subAccount.nickname << "刷新了Cookie";
+                }
+                index = i;
+                break;
+            }
+        }
+    }
+
+    // 保存到列表
+    if (subAccount.uid.isEmpty()) // 失效的
+    {
+        if (index == -1)
+        {
+            showError("添加子账号", subAccount.status);
+        }
+        else
+        {
+            us->subAccounts[index].status = subAccount.status;
+            qInfo() << "检测到失效的子账号" << (index+1) << "：" << subAccount.uid << subAccount.nickname;
+        }
+    }
+    else // 可用
+    {
+        SubAccount sa = subAccount;
+        sa.loginTime = QDateTime::currentSecsSinceEpoch();
+        sa.hasDetected = true;
+        if (index == -1)
+        {
+            sa.status = "已登录";
+            us->subAccounts.append(sa);
+            qInfo() << "添加子账号：" << subAccount.uid << subAccount.nickname;
+        }
+        else
+        {
+            sa.status = "可用";
+            us->subAccounts[index] = sa;
+        }
+    }
+
+    if (changed)
+    {
+        saveSubAccount();
+    }
+    updateSubAccount();
+
+    // 继续更新下一个
+    if (_flag_detectingAllSubAccount)
+    {
+        // 延迟，避免更新太频繁
+        QTimer::singleShot(1000, this, [=]{
+            refreshUndetectedSubAccount();
+        });
+    }
+}
+
+
+void MainWindow::on_addSubAccountButton_clicked()
+{
+    if (!hasPermission())
+    {
+        on_actionBuy_VIP_triggered();
+        return ;
+    }
+
+    newFacileMenu;
+    menu->addAction("通过Cookie添加", [=]{
+        menu->close();
+        bool ok;
+        QString cookie = QInputDialog::getText(this, "Cookie", "请输入Cookie", QLineEdit::Normal, "", &ok);
+        if (!ok || cookie.isEmpty())
+            return ;
+        
+        // 检查账号信息
+        qInfo() << "添加子账号Cookie：" << (cookie.left(20) + "...");
+        if (cookie.contains("bili_jct="))
+        {
+            // 通过Cookie添加
+            QString jct = cookie.split("bili_jct=").last().split(";").first();
+            if (jct.isEmpty())
+            {
+                QMessageBox::warning(this, "错误", "Cookie格式错误，无法获取 bili_jct，请检查");
+                return ;
+            }
+            
+            // 联网判断账号
+            liveService->getAccountByCookie(cookie);
+        }
+        else
+        {
+            QMessageBox::warning(this, "错误", "Cookie格式错误，请检查");
+        }
+    });
+    menu->addAction("通过二维码添加", [=]{
+        menu->close();
+
+        // 显示二维码窗口
+        QRCodeLoginDialog* dialog = new QRCodeLoginDialog(this);
+        connect(dialog, &QRCodeLoginDialog::logined, this, [=](QString s){
+            liveService->getAccountByCookie(s);
+        });
+        dialog->exec();
+    });
+    menu->exec();
+}
+
+/**
+ * 刷新所有子账号
+ * 通过已有Cookie更新信息，主要是判断Cookie有没有过期
+ * 主要信息的UID、昵称依旧保留
+ */
+void MainWindow::on_refreshSubAccountButton_clicked()
+{
+    if (!hasPermission())
+    {
+        on_actionBuy_VIP_triggered();
+        return ;
+    }
+    
+    // 清空已有状态
+    for (int i = 0; i < us->subAccounts.size(); i++)
+    {
+        us->subAccounts[i].hasDetected = false;
+        us->subAccounts[i].status = "";
+    }
+    updateSubAccount();
+    _flag_detectingAllSubAccount = true;
+    ui->refreshSubAccountButton->setEnabled(false);
+
+    // 刷新所有子账号
+    refreshUndetectedSubAccount();
+}
+
+
+void MainWindow::on_subAccountDescButton_clicked()
+{
+
+}
+
+
+void MainWindow::on_subAccountTableWidget_customContextMenuRequested(const QPoint &pos)
+{
+    int index = ui->subAccountTableWidget->currentRow();
+    if (index == -1)
+        return ;
+
+    newFacileMenu;
+    menu->addAction("设置Cookie", [=]{
+        bool ok;
+        const QString cookie = QInputDialog::getText(this, "Cookie", "请输入Cookie", QLineEdit::Normal, us->subAccounts[index].cookie, &ok);
+        if (!ok || cookie.isEmpty())
+            return ;
+        us->subAccounts[index].cookie = cookie;
+        us->setValue("subAccount/r" + QString::number(index) + "/cookie", cookie);
+        liveService->getAccountByCookie(cookie);
+        saveSubAccount();
+    });
+    menu->addAction("删除", [=]{
+        us->subAccounts.removeAt(index);
+        saveSubAccount();
+        updateSubAccount();
+    });
+    menu->exec();
+}
+
+void MainWindow::on_proxyTestIPButton_clicked()
+{
+    QNetworkAccessManager *manager = new QNetworkAccessManager(this);
+    QNetworkRequest request(QUrl("https://api.ipify.org?format=json"));
+
+    QNetworkReply *reply = manager->get(request);
+
+    QObject::connect(reply, &QNetworkReply::finished, this, [=]() {
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (!doc.isNull() && doc.object().contains("ip")) {
+                QString ip = doc.object()["ip"].toString();
+                qInfo() << "当前连接使用的IP地址：" << ip;
+                QMessageBox::information(this, tr("IP Test"), tr("Current IP: ") + ip);
+            } else {
+                QMessageBox::warning(this, tr("Error"), tr("Invalid response format"));
+            }
+        } else {
+            QMessageBox::critical(this, tr("Error"), reply->errorString());
+        }
+        reply->deleteLater();
+        manager->deleteLater();
+    });
+}
+
+
+void MainWindow::on_platformButton_clicked()
+{
+    auto switchToPlatform = [=](LivePlatform pl) {
+        us->setValue("global/live_platform", pl);
+        tip_box->createTipCard(new NotificationEntry("", "切换直播平台", "重启生效"));
+    };
+
+    newFacileMenu;
+    menu->addAction(QIcon(":/icons/platform/websocket"), "通用WebSocket", [=]{
+        switchToPlatform(AnyWS);
+    })->check(rt->livePlatform == AnyWS);
+    menu->addAction(QIcon(":/icons/platform/bilibili"), "哔哩哔哩", [=]{
+        switchToPlatform(Bilibili);
+    })->check(rt->livePlatform == Bilibili)->hide();
+    menu->split();
+    menu->addAction(QIcon(":/icons/platform/douyin"), "抖音", [=]{
+        switchToPlatform(Douyin);
+    })->check(rt->livePlatform == Douyin)->hide();
+    menu->addAction(QIcon(":/icons/platform/keyu"), "可遇（TikTok/抖音/快手/视频号/虎牙）", [=]{
+        switchToPlatform(Keyu);
+    })->check(rt->livePlatform == Keyu);
+    menu->split()->addAction(QIcon(":/icons/platform/huya"), "虎牙", [=]{
+        switchToPlatform(Huya);
+    })->check(rt->livePlatform == Huya)->disable()->hide();
+    menu->addAction(QIcon(":/icons/platform/douyu"), "斗鱼", [=]{
+        switchToPlatform(Douyu);
+    })->check(rt->livePlatform == Douyu)->disable()->hide();
+    menu->addAction(QIcon(":/icons/platform/kuaishou"), "快手", [=]{
+        switchToPlatform(Kuaishou);
+    })->check(rt->livePlatform == Kuaishou)->disable()->hide();
+    menu->exec();
 }

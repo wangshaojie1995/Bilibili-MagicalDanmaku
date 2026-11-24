@@ -3,13 +3,17 @@
 
 #include <QObject>
 #include <functional>
-#include "liveroomservice.h"
+#include "liveservicebase.h"
 #include "runtimeinfo.h"
 #include "usersettings.h"
 #include "accountinfo.h"
 #include "orderplayerwindow.h"
 #include "web_server/webserver.h"
 #include "voice_service/voiceservice.h"
+#include "jsengine.h"
+#include "luaengine.h"
+#include "pythonengine.h"
+#include "qmlengine.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -52,17 +56,19 @@ class CodeRunner : public QObject
 public:
     explicit CodeRunner(QObject *parent = nullptr);
 
-
-    void setLiveService(LiveRoomService* service);
+    void setLiveService(LiveServiceBase* service);
+    void setHeaps(MySettings *heaps);
     void setMainUI(Ui::MainWindow *ui);
     void setMusicWindow(OrderPlayerWindow* musicWindow);
     void setWebServer(WebServer* ws);
     void setVoiceService(VoiceService* vs);
     void releaseData();
 
+    QString getCodeContentFromFile(QString name) const;
+
 signals:
     void signalTriggerCmdEvent(const QString& cmd, const LiveDanmaku& danmaku, bool debug);
-    void signalLocalNotify(const QString& text, qint64 uid);
+    void signalLocalNotify(const QString& text, UIDT uid);
     void signalShowError(const QString& title, const QString& info);
     void signalSpeakText(const QString& text);
 
@@ -85,16 +91,19 @@ public slots:
 public:
     void analyzeMsgAndCd(QString &msg, int& cd, int& channel) const;
     QString processTimeVariants(QString msg) const;
+    QString replaceCodeLanguage(QString code, const LiveDanmaku &danmaku, bool* ok);
     QStringList getEditConditionStringList(QString plainText, LiveDanmaku danmaku);
     QString processDanmakuVariants(QString msg, const LiveDanmaku &danmaku);
-    QString replaceDanmakuVariants(const LiveDanmaku &danmaku, const QString& key, bool* ok) const;
-    QString replaceDanmakuJson(const QJsonObject& json, const QString &key_seq, bool *ok) const;
+    QString replaceDanmakuVariants(const LiveDanmaku &danmaku, const QString& key, bool* ok);
+    QString generateCodeFunctions(const QString &funcName, const QString &args, const LiveDanmaku& danmaku, bool* ok) const;
+    QString replaceDanmakuJson(const QString &keySeq, const QJsonObject& json, bool *ok) const;
+    QString traverseJsonCode(const QString& keySeq, const QString& code, const QJsonObject& json) const;
     QString replaceDynamicVariants(const QString& funcName, const QString& args, const LiveDanmaku &danmaku);
     QString processMsgHeaderConditions(QString msg) const;
     template<typename T>
     bool isConditionTrue(T a, T b, QString op) const;
     bool isFilterRejected(QString filterName, const LiveDanmaku& danmaku);
-    bool processFilter(QString filterText, const LiveDanmaku& danmaku);
+    bool processFilter(QString filterCode, const LiveDanmaku& danmaku);
     void translateUnicode(QString& s) const;
 
     QString getReplyExecutionResult(QString key, const LiveDanmaku &danmaku);
@@ -111,16 +120,17 @@ public:
     bool hasSimilarOldDanmaku(const QString &s) const;
 
     void triggerCmdEvent(const QString& cmd, const LiveDanmaku& danmaku, bool debug = false);
-    void localNotify(const QString& text, qint64 uid = 0);
+    void localNotify(const QString& text, UIDT uid = "");
     void showError(const QString& title, const QString& desc = "");
 
     QString msgToShort(QString msg) const;
     QString toFilePath(const QString& fileName) const;
     QString toSingleLine(QString text) const;
     QString toMultiLine(QString text) const;
+    QString toMultiLineForJson(QString text) const;
     QString toRunableCode(QString text) const;
-    qint64 unameToUid(QString text);
-    QString uidToName(qint64 uid);
+    UIDT unameToUid(QString text);
+    QString uidToName(QString uid);
     QString nicknameSimplify(const LiveDanmaku& danmaku) const;
     QString numberSimplify(int number) const;
     bool shallAutoMsg() const;
@@ -130,13 +140,13 @@ public:
     bool isWorking() const;
 
 private:
-    LiveRoomService* liveService = nullptr;
+    LiveServiceBase* liveService = nullptr;
     Ui::MainWindow *ui;
 
 public:
     // 设置
-    MySettings* heaps;
-    MySettings* extSettings;
+    MySettings* heaps = nullptr;
+    MySettings* extSettings = nullptr;
     bool enableFilter = true; // 过滤器总开关
 
     // 过滤器（已废弃方案）
@@ -158,20 +168,20 @@ public:
     int msgWaits[CHANNEL_COUNT] = {}; // 等待通道
 
     // 游戏列表
-    QList<qint64> gameUsers[CHANNEL_COUNT];
+    QList<UIDT> gameUsers[CHANNEL_COUNT];
     QList<qint64> gameNumberLists[CHANNEL_COUNT];
     QList<QString> gameTextLists[CHANNEL_COUNT];
 
     // 弹幕记录
     const int debugLastCount = 20;
-    QStringList lastConditionDanmu;   // 替换变量后的代码
+    mutable QStringList lastConditionDanmu;   // 替换变量后的代码
     QStringList lastCandidateDanmaku; // 要执行的代码
     int robotTotalSendMsg = 0; // 机器人发送的弹幕数量
     int liveTotalDanmaku = 0; // 本场直播的弹幕数量
 
     // 其他模块
-    OrderPlayerWindow* musicWindow;
-    WebServer* webServer;
+    OrderPlayerWindow* musicWindow = nullptr;
+    WebServer* webServer = nullptr;
 
     // 缓存
     QHash<QString, QImage> cacheImages;
@@ -181,6 +191,12 @@ public:
 
     // bool (*execFuncCallback)(QString msg, LiveDanmaku &danmaku, CmdResponse &res, int &resVal) = nullptr;
     std::function<bool(QString, LiveDanmaku&, CmdResponse&, int&)> execFuncCallback;
+
+    // 编程引擎
+    JSEngine* jsEngine;
+    LuaEngine* luaEngine;
+    PythonEngine* pythonEngine;
+    QmlEngine* qmlEngine;
 };
 
 extern CodeRunner* cr;

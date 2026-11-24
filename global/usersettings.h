@@ -4,6 +4,19 @@
 #include "mysettings.h"
 #include "externalblockuser.h"
 
+#define UIDT QString
+
+struct SubAccount
+{
+    QString uid;
+    QString nickname;
+    QString cookie;
+    qint64 loginTime;
+
+    bool hasDetected = false; // 是否检测过有效
+    QString status; // 状态
+};
+
 class UserSettings : public MySettings
 {
 public:
@@ -11,18 +24,18 @@ public:
     {
     }
 
-    QHash<qint64, QString> localNicknames;             // 本地昵称
-    QHash<qint64, qint64> userComeTimes;               // 用户进来的时间（客户端时间戳为准）
-    QHash<qint64, qint64> userBlockIds;                // 本次用户屏蔽的ID
+    QHash<UIDT, QString> localNicknames;             // 本地昵称
+    QHash<UIDT, qint64> userComeTimes;               // 用户进来的时间（客户端时间戳为准）
+    QHash<UIDT, qint64> userBlockIds;                // 本次用户屏蔽的ID
     QSettings *danmakuCounts;                          // 保存弹幕次数的settings
     QSettings *userMarks;                              // 保存每位用户的设置
-    QList<qint64> careUsers;                           // 特别关心
-    QList<qint64> strongNotifyUsers;                   // 强提醒
+    QList<UIDT> careUsers;                           // 特别关心
+    QList<UIDT> strongNotifyUsers;                   // 强提醒
     QList<QPair<QString, QString>> customVariant;      // 自定义变量
     QList<QPair<QString, QString>> variantTranslation; // 变量翻译
     QList<QPair<QString, QString>> replaceVariant;     // 替换变量
-    QList<qint64> notWelcomeUsers;                     // 不自动欢迎的用户（某些领导、黑粉）
-    QList<qint64> notReplyUsers;                       // 不自动回复的用户
+    QList<UIDT> notWelcomeUsers;                     // 不自动欢迎的用户（某些领导、黑粉）
+    QList<UIDT> notReplyUsers;                       // 不自动回复的用户
     QHash<int, QString> giftAlias;                     // 礼物名字
     QList<EternalBlockUser> eternalBlockUsers;         // 永久禁言
 
@@ -37,6 +50,7 @@ public:
     bool adjustDanmakuLongest = true;// 自动调整弹幕最长字数
     bool removeLongerRandomDanmaku = true; // 随机弹幕自动移除过长的（无视优先级），否则长弹幕会自动分割成多条短的
     bool timerConnectServer = false; // 定时连接
+    int danmakuHistoryMaxCount = 100000; // 保留的总的弹幕历史记录
     int startLiveHour = -1;          // 最早上班的时间
     int endLiveHour = -1;            // 最晚下播的时间
     int timerConnectInterval;        // 定时检测的时间（分支）
@@ -53,11 +67,15 @@ public:
     bool saveCmdToSqlite = false;    // 保存所有CMD命令到数据库
     int judgeRobot = 0;              // 判断机器人：0关，1仅关注，2所有
     int giftComboDelay = 3;          // 礼物连击延迟（秒）
-    bool AIReplyMsgLocal = false;    // AI回复本地显示
+    bool AIReplyMsgEnabled = false;    // AI回复本地显示
     int AIReplyMsgSend = 0;          // AI回复发送弹幕，0关闭，1仅少量，2全部
+    bool AIReplySelf = false;        // AI回复自己（避免死循环）
+    bool fansArchives = false;       // 是否开启粉丝档案
+    bool fansArchivesByRoom = false; // 粉丝档案区分直播间
 
+    QString chatgpt_endpiont = "https://api.deepseek.com/chat/completions";
     QString open_ai_key;
-    QString chatgpt_model_name = "gpt-3.5-turbo";
+    QString chatgpt_model_name = "deepseek-chat";
     bool chatgpt_history_input = false;
     int chatgpt_max_token_count = 2048;
     int chatgpt_max_context_count = 16;
@@ -66,18 +84,23 @@ public:
     QString chatgpt_analysis_prompt;
     QString chatgpt_analysis_format;
     QString chatgpt_analysis_action;
+    int chatgpt_history_max_count = 100; // 聊天记录保留数量（按UID）
+
+    QList<SubAccount> subAccounts;
 
     bool localMode = false;   // 本地调试模式
     bool debugPrint = false;  // 调试输出模式
     bool complexCalc = false; // 启动复杂计算（禁用，有大bug）
     QJsonObject dynamicConfigs;  // 一些默认配置
 
-    QString getLocalNickname(qint64 uid) const
+    QString getLocalNickname(UIDT uid) const
     {
         if (localNicknames.contains(uid))
             return localNicknames.value(uid);
         return "";
     }
+
+    QString getSubAccountCookie(const QString& arg) const;
 };
 
 extern UserSettings *us;

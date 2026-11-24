@@ -64,7 +64,7 @@ public:
         return waiting;
     }
 
-    void getResponse(const QString& paramText)
+    void getResponse(const QString& paramText, QJsonObject extraKey = QJsonObject())
     {
         QJsonObject json;
         json.insert("model", us->chatgpt_model_name);
@@ -75,10 +75,16 @@ public:
         array.append(rc);
         json.insert("messages", array);
         json.insert("temperature", 0.7);
+
+        foreach (QString key, extraKey.keys())
+        {
+            json.insert(key, extraKey.value(key));
+        }
+
         getResponse(json);
     }
 
-    void getResponse(QList<ChatBean> chats)
+    void getResponse(QList<ChatBean> chats, QJsonObject extraKey = QJsonObject())
     {
         QJsonObject json;
         json.insert("model", us->chatgpt_model_name);
@@ -93,11 +99,24 @@ public:
         json.insert("messages", array);
         json.insert("temperature", 0.7);
         // json.insert("max_tokens", us->chatgpt_max_token_count);
+
+        foreach (QString key, extraKey.keys())
+        {
+            json.insert(key, extraKey.value(key));
+        }
+
         getResponse(json);
     }
 
     void getResponse(const QJsonObject& paramJson)
     {
+        if (us->chatgpt_endpiont.isEmpty())
+        {
+            qWarning() << "未设置API地址";
+            emit signalResponseFinished();
+            return ;
+        }
+
         if (us->open_ai_key.isEmpty())
         {
             qWarning() << "未设置OpenAI秘钥";
@@ -105,15 +124,15 @@ public:
             return ;
         }
 
-        if (us->open_ai_key.startsWith("fk"))
-            url = "https://stream.api2d.net/v1/chat/completions";
-        else if (us->open_ai_key.startsWith("sk"))
-            url = "https://api.openai.com/v1/chat/completions";
-        else
-        {
-            url = "https://api.openai.com/v1/chat/completions";
-            qWarning() << "设置的不正确的key：" << us->open_ai_key;
-        }
+        url = us->chatgpt_endpiont;
+//        if (us->open_ai_key.startsWith("fk"))
+//            url = "https://stream.api2d.net/v1/chat/completions";
+//        else if (us->open_ai_key.startsWith("sk"))
+//            url = "https://api.openai.com/v1/chat/completions";
+//        else
+//        {
+//            // qWarning() << "设置的不正确的key：" << us->open_ai_key;
+//        }
 
         this->param_json = paramJson;
 
@@ -161,14 +180,26 @@ public:
             }
             else
             {
-                qDebug() << ("ChatGPT回复文本：" + text.left(300));
+                qDebug() << ("ChatGPT回复文本：" + text.left(300) + "...(" + text.length() + ")");
                 emit signalResponseText(text);
             }
         }
         else
         {
             qDebug() << ("无法解析ChatGPT回复：" + QString(ba));
-            emit signalResponseError(ba);
+            // 解析错误
+            if (json.contains("error") && json.value("error").isObject())
+                json = json.value("error").toObject();
+            if (json.contains("message"))
+            {
+                int code = json.value("code").toInt();
+                QString type = json.value("type").toString();
+                emit signalResponseError((json.value("message").toString() + "\n\n错误码：" + QString::number(code) + "  " + type).toUtf8());
+            }
+            else
+            {
+                emit signalResponseError(ba);
+            }
         }
     }
 

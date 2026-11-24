@@ -8,6 +8,8 @@
 #include <QJsonObject>
 #include <QDebug>
 
+typedef QString UIDT;
+
 enum MessageType
 {
     MSG_DEF,
@@ -24,7 +26,8 @@ enum MessageType
     MSG_SHARE,
     MSG_PK_BEST,
     MSG_SUPER_CHAT,
-    MSG_EXTRA
+    MSG_EXTRA,
+    MSG_LIKE
 };
 
 class LiveDanmaku
@@ -33,16 +36,18 @@ public:
     explicit LiveDanmaku() : msgType(MSG_DEF)
     {}
 
-    explicit LiveDanmaku(qint64 uid) : msgType(MSG_MSG), uid(uid)
+    LiveDanmaku(qint64 uid, QString nickname, QString text)
+        : LiveDanmaku(QString::number(uid), nickname, text)
     {}
 
-    LiveDanmaku(qint64 uid, QString text) : msgType(MSG_MSG), uid(uid), text(text)
-    {}
-
-    LiveDanmaku(qint64 uid, QString nickname, QString text) : msgType(MSG_MSG), uid(uid), nickname(nickname), text(text)
+    LiveDanmaku(UIDT uid, QString nickname, QString text) : msgType(MSG_MSG), uid(uid), nickname(nickname), text(text)
     {}
 
     LiveDanmaku(QString nickname, QString text, qint64 uid, int level, QDateTime time, QString unameColor, QString textColor)
+        : LiveDanmaku(nickname, text, QString::number(uid), level, time, unameColor, textColor)
+    {}
+
+    LiveDanmaku(QString nickname, QString text, UIDT uid, int level, QDateTime time, QString unameColor, QString textColor)
         : msgType(MSG_DANMAKU), nickname(nickname), text(text), uid(uid), level(level), timeline(time),
           uname_color(unameColor), text_color(textColor)
     {
@@ -50,6 +55,10 @@ public:
     }
 
     LiveDanmaku(QString nickname, int giftId, QString gift, int num, qint64 uid, QDateTime time, QString coinType, qint64 totalCoin)
+        : LiveDanmaku(nickname, giftId, gift, num, QString::number(uid), time, coinType, totalCoin)
+    {}
+
+    LiveDanmaku(QString nickname, int giftId, QString gift, int num, UIDT uid, QDateTime time, QString coinType, qint64 totalCoin)
         : msgType(MSG_GIFT), nickname(nickname), giftId(giftId), giftName(gift), number(num), uid(uid), timeline(time),
           coin_type(coinType), total_coin(totalCoin)
     {
@@ -57,24 +66,41 @@ public:
     }
 
     LiveDanmaku(QString nickname, qint64 uid, QDateTime time, bool admin, QString unameColor, QString spreadDesc, QString spreadInfo)
+        : LiveDanmaku(nickname, QString::number(uid), time, admin, unameColor, spreadDesc, spreadInfo)
+    {}
+
+    LiveDanmaku(QString nickname, UIDT uid, QDateTime time, bool admin, QString unameColor, QString spreadDesc, QString spreadInfo)
         : msgType(MSG_WELCOME), nickname(nickname), uid(uid), timeline(time), admin(admin),
           uname_color(unameColor), spread_desc(spreadDesc), spread_info(spreadInfo)
     {
 
     }
+
     LiveDanmaku(int guard, QString nickname, qint64 uid, QDateTime time)
+        : LiveDanmaku(guard, nickname, QString::number(uid), time)
+    {}
+
+    LiveDanmaku(int guard, QString nickname, UIDT uid, QDateTime time)
         : msgType(MSG_WELCOME_GUARD), guard(guard), nickname(nickname), uid(uid), timeline(time)
     {
 
     }
 
     LiveDanmaku(QString nickname, qint64 uid, QString song, QDateTime time)
+        : LiveDanmaku(nickname, QString::number(uid), song, time)
+    {}
+
+    LiveDanmaku(QString nickname, UIDT uid, QString song, QDateTime time)
         : msgType(MSG_DIANGE), nickname(nickname), uid(uid), text(song), timeline(time)
     {
 
     }
 
     LiveDanmaku(QString nickname, qint64 uid, QString gift, int num, int guard, int gift_id, qint64 price, int first)
+        : LiveDanmaku(nickname, QString::number(uid), gift, num, guard, gift_id, price, first)
+    {}
+
+    LiveDanmaku(QString nickname, UIDT uid, QString gift, int num, int guard, int gift_id, qint64 price, int first)
         : msgType(MSG_GUARD_BUY), nickname(nickname), uid(uid), giftName(gift), number(num), timeline(QDateTime::currentDateTime()),
           giftId(gift_id), guard(guard), coin_type("gold"), total_coin(price), first(first)
     {
@@ -91,14 +117,14 @@ public:
     }
 
     /// 关注（粉丝）
-    LiveDanmaku(QString nickname, qint64 uid, bool attention, QDateTime time)
+    LiveDanmaku(QString nickname, UIDT uid, bool attention, QDateTime time)
         : msgType(MSG_ATTENTION), nickname(nickname), uid(uid), prev_timestamp(time.toSecsSinceEpoch()),
         timeline(QDateTime::currentDateTime()), attention(attention)
     {
 
     }
 
-    LiveDanmaku(QString nickname, qint64 uid)
+    LiveDanmaku(QString nickname, UIDT uid)
         : msgType(MSG_BLOCK), nickname(nickname), uid(uid), timeline(QDateTime::currentDateTime())
     {
 
@@ -110,12 +136,12 @@ public:
 
     }
 
-    LiveDanmaku(QString uname, qint64 uid, int win, qint64 votes)
+    LiveDanmaku(QString uname, UIDT uid, int win, qint64 votes)
         : msgType(MSG_PK_BEST), nickname(uname), uid(uid), level(win), total_coin(votes)
     {
     }
 
-    LiveDanmaku(QString nickname, QString text, qint64 uid, int level, QDateTime time, QString unameColor, QString textColor,
+    LiveDanmaku(QString nickname, QString text, UIDT uid, int level, QDateTime time, QString unameColor, QString textColor,
                 int giftId, QString gift, int num, int price)
         : msgType(MSG_SUPER_CHAT), nickname(nickname), text(text), uid(uid), level(level), timeline(time),
           uname_color(unameColor), text_color(textColor), giftId(giftId), giftName(gift), number(num),
@@ -132,8 +158,13 @@ public:
     static LiveDanmaku fromDanmakuJson(QJsonObject object)
     {
         LiveDanmaku danmaku;
+        if (object.contains("_id"))
+            danmaku._id = static_cast<qint64>(object.value("uid").toDouble());
         danmaku.text = object.value("text").toString();
-        danmaku.uid = static_cast<qint64>(object.value("uid").toDouble());
+        if (object.value("uid").isString())
+            danmaku.uid = object.value("uid").toString();
+        else
+            danmaku.uid = QString::number(static_cast<qint64>(object.value("uid").toDouble()));
         danmaku.nickname = object.value("nickname").toString();
         danmaku.uname_color = object.value("uname_color").toString();
         danmaku.text_color = object.value("text_color").toString();
@@ -144,12 +175,16 @@ public:
         danmaku.vip = object.value("vip").toInt();
         danmaku.svip = object.value("svip").toInt();
         danmaku.level = object.value("level").toInt();
-        QJsonArray medal = object.value("medal").toArray();
+        QJsonArray medal = object.value("medal").toArray(); // 会被后面覆盖
         if (medal.size() >= 3)
         {
             danmaku.medal_level = medal[0].toInt();
             danmaku.medal_up = medal[1].toString();
             danmaku.medal_name = medal[2].toString();
+            if (medal.size() >= 4)
+            {
+                danmaku.medal_uid = medal[3].toString();
+            }
         }
         danmaku.giftId = object.value("gift_id").toInt();
         danmaku.giftName = object.value("gift_name").toString();
@@ -170,6 +205,7 @@ public:
         danmaku.medal_level = object.value("medal_level").toInt();
         danmaku.medal_color = object.value("medal_color").toString();
         danmaku.medal_up = object.value("medal_up").toString();
+        danmaku.medal_uid = object.value("medal_uid").toString();
         danmaku.no_reply = object.value("no_reply").toBool();
         danmaku.opposite = object.value("opposite").toBool();
         danmaku.to_view = object.value("to_view").toBool();
@@ -179,11 +215,16 @@ public:
         danmaku.uidentity = object.value("uidentity").toInt();
         danmaku.iphone = object.value("iphone").toInt();
         danmaku.guard = object.value("guard_level").toInt();
+        if (danmaku.isGuard())
+            danmaku.guard_expired = QDateTime::fromString("yyyy-MM-dd HH:mm:ss", object.value("guard_expired").toString());
         danmaku.prev_timestamp = static_cast<qint64>(object.value("prev_timestamp").toDouble());
         danmaku.first = object.value("first").toInt();
         danmaku.special = object.value("special").toInt();
         danmaku.extraJson = object.value("extra").toObject();
-        danmaku.faceUrl = object.value("face_url").toString();
+        if (object.contains("face_url"))
+            danmaku.avatar = object.value("face_url").toString();
+        else if (object.contains("avatar"))
+            danmaku.avatar = object.value("avatar").toString();
         danmaku.show_reply = object.value("show_reply").toBool();
         danmaku.reply_mid = static_cast<qint64>(object.value("reply_mid").toDouble());
         danmaku.reply_uname = object.value("reply_uname").toString();
@@ -191,12 +232,15 @@ public:
         danmaku.reply_is_mystery = object.value("reply_is_mystery").toBool();
         danmaku.reply_type_enum = object.value("reply_type_enum").toInt();
         danmaku.wealth_level = object.value("honor_level").toInt();
+        danmaku.fromRoomId = object.value("from_room_id").toString();
+        danmaku.logId = object.value("log_id").toString();
         return danmaku;
     }
 
     QJsonObject toJson() const
     {
         QJsonObject object;
+        object.insert("_id", _id);
         object.insert("nickname", nickname);
         object.insert("uid", uid);
         if (msgType == MSG_DANMAKU || msgType == MSG_SUPER_CHAT)
@@ -281,6 +325,14 @@ public:
             object.insert("medal_level", medal_level);
             object.insert("medal_color", medal_color);
             object.insert("medal_up", medal_up);
+            if (!medal_uid.isEmpty())
+                object.insert("medal_uid", medal_uid);
+        }
+        if (guard > 0)
+        {
+            object.insert("guard_level", guard);
+            if (guard_expired.isValid())
+                object.insert("guard_expired", guard_expired.toString("yyyy-MM-dd HH:mm:ss"));
         }
         if (opposite)
             object.insert("opposite", opposite);
@@ -296,8 +348,8 @@ public:
             object.insert("prev_timestamp", prev_timestamp);
         if (!extraJson.isEmpty())
             object.insert("extra", extraJson);
-        if (!faceUrl.isEmpty())
-            object.insert("face_url", faceUrl);
+        if (!avatar.isEmpty())
+            object.insert("avatar", avatar);
         if (show_reply && reply_mid > 0)
         {
             object.insert("show_reply", show_reply);
@@ -310,6 +362,14 @@ public:
         if (wealth_level > 0)
         {
             object.insert("honor_level", wealth_level);
+        }
+        if (!fromRoomId.isEmpty())
+        {
+            object.insert("from_room_id", fromRoomId);
+        }
+        if (!logId.isEmpty())
+        {
+            object.insert("log_id", logId);
         }
         return object;
     }
@@ -404,6 +464,11 @@ public:
         return "未知消息类型";
     }
 
+    bool operator==(const LiveDanmaku& other) const
+    {
+        return this->_id == other._id;
+    }
+
     bool is(MessageType type) const
     {
         return this->msgType == type;
@@ -416,6 +481,11 @@ public:
         attention = true;
     }
 
+    void setAttention(int attention)
+    {
+        this->attention = attention;
+    }
+
     void transToDanmu()
     {
         this->msgType = MSG_DANMAKU;
@@ -426,23 +496,42 @@ public:
         this->msgType = MSG_SHARE;
     }
 
+    void setMsgType(MessageType type)
+    {
+        this->msgType = type;
+    }
+
     void setNickname(const QString& name)
     {
         this->nickname = name;
     }
 
-    void setMedal(QString roomId, QString name, int level, QString color, QString up = "")
+    void setUser(QString name, UIDT uid, QString face, QString unameColor = "", QString textColor = "")
+    {
+        this->nickname = name;
+        this->uid = uid;
+        this->avatar = face;
+        this->uname_color = unameColor;
+        this->text_color = textColor;
+    }
+
+    void setMedal(QString roomId, QString name, int level, QString color, QString up = "", QString uid = "")
     {
         this->anchor_roomid = roomId;
         this->medal_name = name;
         this->medal_level = level;
         this->medal_color = color;
         this->medal_up = up;
+        this->medal_uid = uid;
     }
 
-    void setGuardLevel(int level)
+    void setGuardLevel(int level, QString exp = "")
     {
         this->guard = level;
+        if (exp.isEmpty())
+            this->guard_expired = QDateTime();
+        else
+            this->guard_expired = QDateTime::fromString("yyyy-MM-dd HH:mm:ss", exp);
     }
 
     void setUserInfo(int admin, int vip, int svip, int uidentity, int iphone, int guard)
@@ -457,12 +546,27 @@ public:
 
     void setUid(qint64 uid)
     {
+        this->uid = QString::number(uid);
+    }
+
+    void setUid(UIDT uid)
+    {
         this->uid = uid;
+    }
+
+    void setSecUid(QString secUid)
+    {
+        this->secUid = secUid;
     }
 
     void setText(QString s)
     {
         this->text = s;
+    }
+
+    void setCoinType(QString s)
+    {
+        this->coin_type = s;
     }
 
     void setNumber(int num)
@@ -498,6 +602,14 @@ public:
     void setPkLink(bool link)
     {
         this->pk_link = link;
+    }
+
+    void setGift(qint64 giftId, QString giftName, int num, qint64 totalCoin)
+    {
+        this->giftId = giftId;
+        this->giftName = giftName;
+        this->number = num;
+        this->total_coin = totalCoin;
     }
 
     void addGift(int count, qint64 total, qint64 discountPrice, QDateTime time)
@@ -543,6 +655,11 @@ public:
         this->admin = admin;
     }
 
+    void setLevel(int level)
+    {
+        this->level = level;
+    }
+
     void setArgs(QStringList args)
     {
         this->args = args;
@@ -564,9 +681,9 @@ public:
                 && this->text == another.text;
     }
 
-    void setFaceUrl(const QString& url)
+    void setAvatar(const QString& url)
     {
-        this->faceUrl = url;
+        this->avatar = url;
     }
 
     void setAIReply(const QString& reply)
@@ -589,14 +706,34 @@ public:
         this->wealth_level = level;
     }
 
+    void setSubAccount(QString sub)
+    {
+        this->sub_account = sub;
+    }
+
+    void setOriginalGiftName(QString name)
+    {
+        this->original_gift_name = name;
+    }
+
+    void setLogId(QString logId)
+    {
+        this->logId = logId;
+    }
+
     QString getText() const
     {
         return text;
     }
 
-    qint64 getUid() const
+    UIDT getUid() const
     {
         return uid;
+    }
+
+    QString getSecUid() const
+    {
+        return secUid;
     }
 
     QString getNickname() const
@@ -681,6 +818,11 @@ public:
         return "";
     }
 
+    QDateTime getGuardExpiredTime() const
+    {
+        return guard_expired;
+    }
+
     int getGiftId() const
     {
         return giftId;
@@ -704,6 +846,17 @@ public:
     bool isGoldCoin() const
     {
         return coin_type == "gold";
+    }
+
+    QString getCoinName() const
+    {
+        if (coin_type == "gold")
+            return "金瓜子";
+        else if (coin_type == "silver")
+            return "银瓜子";
+        else if (coin_type.contains("dy"))
+            return "抖币";
+        return "<未知单位>";
     }
 
     bool isSilverCoin() const
@@ -791,6 +944,11 @@ public:
         return medal_up;
     }
 
+    QString getMedalUid() const
+    {
+        return medal_uid;
+    }
+
     QString getMedalColor() const
     {
         return medal_color;
@@ -831,6 +989,16 @@ public:
         return robot;
     }
 
+    QDateTime getTime() const
+    {
+        return timeline;
+    }
+
+    qint64 getTimestamp() const
+    {
+        return timeline.toSecsSinceEpoch();
+    }
+
     qint64 getPrevTimestamp() const
     {
         return prev_timestamp;
@@ -838,7 +1006,7 @@ public:
 
     bool isGuard() const
     {
-        return guard;
+        return guard > 0;
     }
 
     int getFirst() const
@@ -864,15 +1032,15 @@ public:
         return *this;
     }
 
-    LiveDanmaku& withRoomId(QString roomId)
+    LiveDanmaku& setFromRoomId(QString roomId)
     {
-        this->roomId = roomId;
+        this->fromRoomId = roomId;
         return *this;
     }
 
     QString getRoomId() const
     {
-        return roomId;
+        return fromRoomId;
     }
 
     LiveDanmaku& withRetry(int r = 1)
@@ -886,9 +1054,9 @@ public:
         return retry > 0;
     }
 
-    QString getFaceUrl() const
+    QString getAvatar() const
     {
-        return faceUrl;
+        return avatar;
     }
 
     QString getAIReply() const
@@ -931,29 +1099,53 @@ public:
         return wealth_level;
     }
 
-private:
+    QString getSubAccount() const
+    {
+        return sub_account;
+    }
+
+    QString getOriginalGiftName() const
+    {
+        return original_gift_name;
+    }
+
+    QString getFromRoomId() const
+    {
+        return fromRoomId;
+    }
+
+    QString getLogId() const
+    {
+        return logId;
+    }
+
+protected:
+    qint64 _id = QDateTime::currentMSecsSinceEpoch() * 1000 + (100 + qrand() % 900);
     MessageType msgType = MSG_DANMAKU;
 
     QString text;
-    qint64 uid = 0; // 用户ID
+    UIDT uid = 0; // 用户ID
+    QString secUid; // 用户secUid
     QString nickname;
     QString uname_color; // 没有的话是空的
     QString text_color; // 没有的话是空的
     QDateTime timeline;
     int admin = 0; // 房管
     int guard = 0; // 舰长
+    QDateTime guard_expired;
     int vip = 0;
     int svip = 0;
     int uidentity = 0; // 正式会员
     int iphone = 0; // 手机实名
     bool no_reply = false; // 不需要处理的弹幕
     bool auto_send = false; // 自己发送的弹幕，同样也不需要处理
-    QString faceUrl;
+    QString avatar;
 
     QString anchor_roomid;
     int medal_level = 0;
     QString medal_name;
     QString medal_up;
+    QString medal_uid;
     QString medal_color;
 
     int level = 0;
@@ -973,6 +1165,8 @@ private:
     QString coin_type;
     qint64 total_coin = 0;
     qint64 discount_price = 0;
+    QString original_gift_name;
+    QString logId;
 
     QString spread_desc; // 星光推广
     QString spread_info; // 颜色
@@ -990,10 +1184,10 @@ private:
 
     bool robot = false;
     qint64 prev_timestamp = 0;
-    int first = 0; // 初次：1；新的：2
+    int first = 0; // 初次：1；新的：2；礼物合并：>0
     int special = 0;
 
-    QString roomId;
+    QString fromRoomId;
     int retry = 0;
     QString ai_reply;
 
@@ -1003,6 +1197,8 @@ private:
     QString reply_uname_color;
     bool reply_is_mystery = false;
     int reply_type_enum = 0;
+
+    QString sub_account;
 
 public:
     QStringList args;
